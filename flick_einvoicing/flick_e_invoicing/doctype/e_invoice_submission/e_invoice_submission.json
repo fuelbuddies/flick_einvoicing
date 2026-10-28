@@ -1,0 +1,328 @@
+{
+ "actions": [],
+ "autoname": "EINV-.YYYY.-.#####",
+ "creation": "2026-10-28 22:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "invoice_doctype",
+  "invoice",
+  "company",
+  "customer",
+  "column_break_head",
+  "status",
+  "next_action",
+  "document_section",
+  "document_identifier",
+  "document_type",
+  "issue_date",
+  "column_break_document",
+  "document_id",
+  "currency",
+  "grand_total",
+  "tracks_section",
+  "reporting_status",
+  "reporting_settled",
+  "column_break_tracks",
+  "exchange_status",
+  "exchange_settled",
+  "attempts_section",
+  "attempt_count",
+  "last_attempt",
+  "next_retry_at",
+  "column_break_attempts",
+  "last_event_at",
+  "validation_errors",
+  "error_message",
+  "payload_section",
+  "request_payload",
+  "response_payload",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "invoice_doctype",
+   "fieldtype": "Select",
+   "label": "Invoice Type",
+   "options": "Sales Invoice\nPOS Invoice",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "invoice",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Invoice",
+   "options": "invoice_doctype",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company",
+   "read_only": 1
+  },
+  {
+   "fieldname": "customer",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Customer",
+   "options": "Customer",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "Queued",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "no_copy": 1,
+   "options": "Queued\nRejected\nError\nCancelled\nProcessing\nCompleted\nFailed",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "next_action",
+   "fieldtype": "Small Text",
+   "label": "Next Action",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "document_section",
+   "fieldtype": "Section Break",
+   "label": "Document"
+  },
+  {
+   "fieldname": "document_identifier",
+   "fieldtype": "Data",
+   "label": "Document Identifier",
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "description": "380 invoice, 381 credit note, 480 / 81 out of scope",
+   "fieldname": "document_type",
+   "fieldtype": "Data",
+   "label": "Document Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "issue_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Issue Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_document",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "document_id",
+   "fieldtype": "Data",
+   "label": "Flick Document ID",
+   "no_copy": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Currency",
+   "options": "Currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "grand_total",
+   "fieldtype": "Currency",
+   "label": "Grand Total",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "description": "Reporting to the FTA and delivery to the buyer run separately. A failed track that is not settled is still being retried by Flick.",
+   "fieldname": "tracks_section",
+   "fieldtype": "Section Break",
+   "label": "Flick Status"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "reporting_status",
+   "fieldtype": "Select",
+   "label": "Reporting",
+   "no_copy": 1,
+   "options": "\nprocessing\nreported\nfailed\ncancelled\nnot_required",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "reporting_settled",
+   "fieldtype": "Check",
+   "label": "Reporting Settled",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_tracks",
+   "fieldtype": "Column Break"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "exchange_status",
+   "fieldtype": "Select",
+   "label": "Delivery",
+   "no_copy": 1,
+   "options": "\nprocessing\ndelivered\nreceived\nfailed\nnot_required",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "exchange_settled",
+   "fieldtype": "Check",
+   "label": "Delivery Settled",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "attempts_section",
+   "fieldtype": "Section Break",
+   "label": "Attempts"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "attempt_count",
+   "fieldtype": "Int",
+   "label": "Attempts",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "last_attempt",
+   "fieldtype": "Datetime",
+   "label": "Last Attempt",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "next_retry_at",
+   "fieldtype": "Datetime",
+   "label": "Next Retry",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_attempts",
+   "fieldtype": "Column Break"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "last_event_at",
+   "fieldtype": "Datetime",
+   "label": "Last Event",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "validation_errors",
+   "fieldtype": "Small Text",
+   "label": "Validation Errors",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "error_message",
+   "fieldtype": "Small Text",
+   "label": "Error",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "payload_section",
+   "fieldtype": "Section Break",
+   "label": "Payload"
+  },
+  {
+   "fieldname": "request_payload",
+   "fieldtype": "Code",
+   "label": "Request",
+   "no_copy": 1,
+   "options": "JSON",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "response_payload",
+   "fieldtype": "Code",
+   "label": "Last Response",
+   "no_copy": 1,
+   "options": "JSON",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "E Invoice Submission",
+   "print_hide": 1,
+   "read_only": 1
+  }
+ ],
+ "in_create": 1,
+ "index_web_pages_for_search": 0,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-10-28 22:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Flick E-Invoicing",
+ "name": "E Invoice Submission",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "cancel": 1,
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "write": 1
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User"
+  }
+ ],
+ "show_title_field_in_link": 0,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "invoice",
+ "track_changes": 1
+}

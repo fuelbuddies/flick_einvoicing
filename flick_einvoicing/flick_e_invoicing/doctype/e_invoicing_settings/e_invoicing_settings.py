@@ -1,0 +1,81 @@
+# Copyright (c) 2026, Ashar Shamsudheen and contributors
+# For license information, please see license.txt
+
+import re
+
+import frappe
+from frappe import _
+from frappe.model.document import Document
+
+from flick_einvoicing.einvoice import codes
+
+UUID_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+
+
+class EInvoicingSettings(Document):
+	def validate(self):
+		self.base_url = (self.base_url or "").strip().rstrip("/")
+		if self.base_url and not self.base_url.startswith("https://"):
+			frappe.throw(_("Base URL must start with https://"))
+		if self.base_url.endswith("/v1"):
+			frappe.throw(_("Leave /v1 off the Base URL; the app adds the API paths itself."))
+
+		self.participant_id = (self.participant_id or "").strip()
+		if self.participant_id and not UUID_PATTERN.match(self.participant_id):
+			frappe.throw(
+				_(
+					"Participant ID should be the UUID Flick gave you, like 019fc2bd-5623-7e33-aeca-a95afb39541a."
+				)
+			)
+
+		self.validate_tax_treatments()
+		if self.enabled:
+			self.validate_ready()
+
+		if self.environment == "Production" and "preprod" in self.base_url:
+			frappe.msgprint(
+				_("Environment is Production but the Base URL looks like pre-production."), indicator="orange"
+			)
+
+	def validate_tax_treatments(self):
+		seen = set()
+		for row in self.tax_treatments:
+			key = (row.template_type, row.template)
+			if key in seen:
+				frappe.throw(_("Row {0}: {1} is mapped twice.").format(row.idx, row.template))
+			seen.add(key)
+
+			template_company = frappe.db.get_value(row.template_type, row.template, "company")
+			if template_company and template_company != self.company:
+				frappe.throw(
+					_("Row {0}: {1} belongs to {2}, not {3}.").format(
+						row.idx, row.template, template_company, self.company
+					)
+				)
+
+			if codes.code_of(row.tax_category) == "E":
+				if not row.exemption_reason_code:
+					frappe.throw(_("Row {0}: exempt supplies need an exemption reason.").format(row.idx))
+			else:
+				row.exemption_reason_code = None
+				row.exemption_reason_text = None
+
+	def validate_ready(self):
+		required = {
+			"base_url": _("Base URL"),
+			"api_key": _("API Key"),
+			"participant_id": _("Participant ID"),
+			"start_date": _("Start Date"),
+			"payment_means_code": _("Payment Means"),
+			"uom_code_list": _("UOM Code List"),
+		}
+		missing = [label for field, label in required.items() if not self.get(field)]
+		if missing:
+			frappe.throw(_("Fill these in before enabling e-invoicing: {0}").format(", ".join(missing)))
+		if (
+			codes.code_of(self.payment_means_code) in codes.PAYMENT_MEANS_NEEDING_ACCOUNT
+			and not self.payment_account_id
+		):
+			frappe.throw(_("Credit transfer needs the IBAN the buyer pays into."))
+		if not self.tax_treatments:
+			frappe.throw(_("Map at least one tax template before enabling e-invoicing."))

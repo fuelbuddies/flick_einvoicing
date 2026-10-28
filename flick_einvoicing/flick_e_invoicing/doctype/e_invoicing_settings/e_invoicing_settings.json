@@ -1,0 +1,264 @@
+{
+ "actions": [],
+ "autoname": "field:company",
+ "creation": "2026-10-28 22:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "company",
+  "enabled",
+  "column_break_top",
+  "environment",
+  "provider",
+  "connection_section",
+  "base_url",
+  "participant_id",
+  "column_break_connection",
+  "api_key",
+  "submission_section",
+  "submission_mode",
+  "start_date",
+  "column_break_submission",
+  "skip_b2c",
+  "skip_internal_customers",
+  "payment_section",
+  "payment_means_code",
+  "payment_account_id",
+  "column_break_payment",
+  "payment_account_name",
+  "payment_service_provider_id",
+  "codes_section",
+  "uom_code_list",
+  "tax_section",
+  "tax_treatments",
+  "events_section",
+  "ack_events",
+  "column_break_events",
+  "event_cursor",
+  "events_synced_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "column_break_top",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Pre-Production",
+   "fieldname": "environment",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Environment",
+   "options": "Pre-Production\nProduction",
+   "reqd": 1
+  },
+  {
+   "default": "Flick",
+   "fieldname": "provider",
+   "fieldtype": "Select",
+   "label": "Provider",
+   "options": "Flick",
+   "reqd": 1
+  },
+  {
+   "fieldname": "connection_section",
+   "fieldtype": "Section Break",
+   "label": "Connection"
+  },
+  {
+   "description": "Assigned by Flick, without a trailing slash. Pre-production: https://preprod-ae-api.flickeinvoice.com",
+   "fieldname": "base_url",
+   "fieldtype": "Data",
+   "label": "Base URL"
+  },
+  {
+   "description": "The Flick participant this company files as. Test Connection lists the ones your key covers.",
+   "fieldname": "participant_id",
+   "fieldtype": "Data",
+   "label": "Participant ID"
+  },
+  {
+   "fieldname": "column_break_connection",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Static key starting flick_ae_. Stored encrypted; never logged.",
+   "fieldname": "api_key",
+   "fieldtype": "Password",
+   "label": "API Key"
+  },
+  {
+   "fieldname": "submission_section",
+   "fieldtype": "Section Break",
+   "label": "Submission"
+  },
+  {
+   "default": "Live",
+   "description": "Live sends each invoice right after it is submitted. Batch sends every ten minutes.",
+   "fieldname": "submission_mode",
+   "fieldtype": "Select",
+   "label": "Submission Mode",
+   "options": "Live\nBatch"
+  },
+  {
+   "description": "Invoices posted before this date are never e-invoiced.",
+   "fieldname": "start_date",
+   "fieldtype": "Date",
+   "label": "Start Date"
+  },
+  {
+   "fieldname": "column_break_submission",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "description": "Customers of type Individual are treated as consumers. B2C is out of e-invoicing scope today.",
+   "fieldname": "skip_b2c",
+   "fieldtype": "Check",
+   "label": "Skip B2C Invoices"
+  },
+  {
+   "default": "0",
+   "description": "Leave off when group companies have their own TRNs: a supply between them is taxable. Turn on inside a VAT group.",
+   "fieldname": "skip_internal_customers",
+   "fieldtype": "Check",
+   "label": "Skip Internal Customers"
+  },
+  {
+   "description": "Every invoice carries how it is paid (PINT-AE ibr-191-ae).",
+   "fieldname": "payment_section",
+   "fieldtype": "Section Break",
+   "label": "Payment Means"
+  },
+  {
+   "fieldname": "payment_means_code",
+   "fieldtype": "Select",
+   "label": "Payment Means",
+   "options": "\n1 - Instrument not defined\n10 - Cash\n20 - Cheque\n21 - Banker's draft\n30 - Credit transfer\n49 - Direct debit\n54 - Credit card\n55 - Debit card\n68 - Online payment service"
+  },
+  {
+   "depends_on": "eval:(doc.payment_means_code || '').startsWith('30 ')",
+   "fieldname": "payment_account_id",
+   "fieldtype": "Data",
+   "label": "IBAN / Account Number"
+  },
+  {
+   "fieldname": "column_break_payment",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "payment_account_name",
+   "fieldtype": "Data",
+   "label": "Account Name"
+  },
+  {
+   "fieldname": "payment_service_provider_id",
+   "fieldtype": "Data",
+   "label": "Bank BIC"
+  },
+  {
+   "fieldname": "codes_section",
+   "fieldtype": "Section Break",
+   "label": "Units of Measure"
+  },
+  {
+   "default": "UN/ECE Recommendation 20",
+   "description": "ERPNext Code List holding UN/ECE Rec 20 codes. Link each UOM you invoice in to one code under Applies To on its Common Code.",
+   "fieldname": "uom_code_list",
+   "fieldtype": "Link",
+   "label": "UOM Code List",
+   "options": "Code List"
+  },
+  {
+   "description": "Map each VAT template this company invoices with to its PINT-AE category. A line's Item Tax Template wins over the invoice's template; an unmapped template stops the submit.",
+   "fieldname": "tax_section",
+   "fieldtype": "Section Break",
+   "label": "Tax Treatments"
+  },
+  {
+   "fieldname": "tax_treatments",
+   "fieldtype": "Table",
+   "label": "Tax Treatments",
+   "options": "E Invoicing Tax Treatment"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "events_section",
+   "fieldtype": "Section Break",
+   "label": "Events Feed"
+  },
+  {
+   "default": "1",
+   "description": "Turn off on a participant other systems also read, such as a shared test participant: the app then reads without moving Flick's stored position.",
+   "fieldname": "ack_events",
+   "fieldtype": "Check",
+   "label": "Acknowledge Events"
+  },
+  {
+   "fieldname": "column_break_events",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "event_cursor",
+   "fieldtype": "Data",
+   "label": "Event Cursor",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "events_synced_at",
+   "fieldtype": "Datetime",
+   "label": "Events Synced At",
+   "no_copy": 1,
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-28 22:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Flick E-Invoicing",
+ "name": "E Invoicing Settings",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "company",
+ "track_changes": 1
+}

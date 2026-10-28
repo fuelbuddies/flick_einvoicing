@@ -1,0 +1,72 @@
+{
+ "actions": [],
+ "creation": "2026-10-28 22:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "template_type",
+  "template",
+  "tax_category",
+  "exemption_reason_code",
+  "exemption_reason_text"
+ ],
+ "fields": [
+  {
+   "columns": 3,
+   "default": "Sales Taxes and Charges Template",
+   "fieldname": "template_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Template Type",
+   "options": "Sales Taxes and Charges Template\nItem Tax Template",
+   "reqd": 1
+  },
+  {
+   "columns": 3,
+   "fieldname": "template",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "Template",
+   "options": "template_type",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "tax_category",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Tax Category",
+   "options": "\nS - Standard rated (5%)\nZ - Zero rated\nE - Exempt\nO - Outside scope of tax\nAE - Reverse charge",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "depends_on": "eval:(doc.tax_category || '').startsWith('E ')",
+   "fieldname": "exemption_reason_code",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Exemption Reason",
+   "options": "\nDL8.46.1 - Certain financial services\nDL8.46.2 - Residential units (lease or sale)\nDL8.46.3 - Bare land\nDL8.46.4 - Local passenger transport"
+  },
+  {
+   "depends_on": "eval:(doc.tax_category || '').startsWith('E ')",
+   "fieldname": "exemption_reason_text",
+   "fieldtype": "Data",
+   "label": "Exemption Reason Text"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-28 22:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Flick E-Invoicing",
+ "name": "E Invoicing Tax Treatment",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}
