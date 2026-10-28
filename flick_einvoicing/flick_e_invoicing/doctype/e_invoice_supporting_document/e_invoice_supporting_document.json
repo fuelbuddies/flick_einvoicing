@@ -1,0 +1,86 @@
+{
+ "actions": [],
+ "creation": "2026-10-28 22:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "kind",
+  "document_identifier",
+  "document_description",
+  "file",
+  "attachment_uri",
+  "invoiced_object",
+  "scheme_id"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "default": "Attachment",
+   "fieldname": "kind",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Kind",
+   "options": "Attachment\nLink\nReference",
+   "reqd": 1
+  },
+  {
+   "columns": 3,
+   "fieldname": "document_identifier",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Document Number",
+   "reqd": 1
+  },
+  {
+   "columns": 3,
+   "fieldname": "document_description",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Description"
+  },
+  {
+   "columns": 2,
+   "depends_on": "eval:doc.kind == 'Attachment'",
+   "fieldname": "file",
+   "fieldtype": "Attach",
+   "in_list_view": 1,
+   "label": "File",
+   "mandatory_depends_on": "eval:doc.kind == 'Attachment'"
+  },
+  {
+   "depends_on": "eval:doc.kind == 'Link'",
+   "fieldname": "attachment_uri",
+   "fieldtype": "Data",
+   "label": "URL",
+   "mandatory_depends_on": "eval:doc.kind == 'Link'",
+   "options": "URL"
+  },
+  {
+   "depends_on": "eval:doc.kind == 'Reference'",
+   "description": "The reference identifies what is being invoiced, such as a contract or meter.",
+   "fieldname": "invoiced_object",
+   "fieldtype": "Check",
+   "label": "Invoiced Object"
+  },
+  {
+   "depends_on": "eval:doc.kind == 'Reference'",
+   "fieldname": "scheme_id",
+   "fieldtype": "Data",
+   "label": "Identifier Scheme"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-10-28 22:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Flick E-Invoicing",
+ "name": "E Invoice Supporting Document",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

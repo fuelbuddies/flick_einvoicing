@@ -18,8 +18,24 @@ UOM_CODES = {
 
 
 def after_install():
+	ensure_doctypes()
 	sync_custom_fields()
 	ensure_uom_code_list()
+
+
+def ensure_doctypes():
+	"""Frappe syncs an app's doctypes from a cached module map. When that cache predates the
+	app (installed with the web server running, say), the sync skips it without a word, and
+	the app is "installed" with none of its doctypes. Sync them here if they are missing."""
+	if frappe.db.exists("DocType", "E Invoice Submission"):
+		return
+	from frappe.model.sync import sync_for
+
+	frappe.clear_cache()
+	frappe.setup_module_map()
+	# Not forced: on a developer-mode bench a forced re-import of an existing workspace deletes
+	# its JSON from the app folder.
+	sync_for("flick_einvoicing", reset_permissions=True)
 
 
 def after_migrate():

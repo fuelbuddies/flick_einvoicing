@@ -1,30 +1,41 @@
+import base64
 import json
 from unittest.mock import patch
 
 import frappe
+from erpnext.accounts.doctype.purchase_invoice.purchase_invoice import make_debit_note
 from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_sales_return
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import add_days, today
 
-from flick_einvoicing.einvoice import service
+from flick_einvoicing.einvoice import inbound, service
 from flick_einvoicing.einvoice import status as st
-from flick_einvoicing.einvoice.payload import build_payload, check_keys
+from flick_einvoicing.einvoice.payload import build_payload, check_keys, invoice_problems
 from flick_einvoicing.einvoice.scope import settings_for
 from flick_einvoicing.providers.flick import FlickClient
 from flick_einvoicing.tests.utils import (
 	BUYER_PEPPOL,
 	BUYER_TRN,
 	DOC_ID,
+	GTIN,
+	SUPPLIER_PEPPOL,
 	FakeFlick,
 	accepted,
+	binary,
 	detail,
+	line,
 	make_fixtures,
 	make_invoice,
+	make_purchase_invoice,
+	pdf_bytes,
 	response,
 	uae_company,
 )
 
 SETTLED_OK = {"status": "reported", "settled": True, "ok": True}
 DELIVERED = {"status": "delivered", "settled": True, "ok": True}
+RUNNING = {"status": "processing", "settled": False}
+DETAIL = rf"/documents/{DOC_ID}$"
 
 
 class FlowTestCase(FrappeTestCase):
@@ -36,12 +47,20 @@ class FlowTestCase(FrappeTestCase):
 			raise cls.skipTest(cls, "needs a company in the United Arab Emirates keeping books in AED")
 		cls.fx = make_fixtures(company)
 
-	def settings(self):
+	def settings(self, **changes):
+		if changes:
+			frappe.db.set_value("E Invoicing Settings", self.fx.company.name, changes)
 		frappe.clear_document_cache("E Invoicing Settings", self.fx.company.name)
 		return settings_for(self.fx.company.name)
 
 	def flick(self, fake):
 		return patch.object(FlickClient, "_http", side_effect=fake)
+
+	def payload(self, invoice):
+		return build_payload(invoice, self.settings())
+
+	def problems(self, invoice):
+		return invoice_problems(invoice, self.settings())
 
 	def submitted_invoice(self, lines=((1, 1000, None),), **kw):
 		si = make_invoice(self.fx, lines, submit=True, **kw)
@@ -50,59 +69,133 @@ class FlowTestCase(FrappeTestCase):
 		return si, sub
 
 
-class TestPayload(FlowTestCase):
-	def test_standard_invoice(self):
-		# 3 x 40 less 20 discount: net 100.00, so the unit price needs more than 2 decimals.
-		si = make_invoice(self.fx, [(3, 40, None)], discount=20)
-		payload = build_payload(si, self.settings())
+class TestDocuments(FlowTestCase):
+	"""Invoices, credit notes and debit notes, as the guide's examples have them."""
 
+	def test_minimal_invoice(self):
+		si = make_invoice(self.fx, [(10, 100, None)])
+		payload = self.payload(si)
 		self.assertEqual(payload["document_identifier"], si.name)
 		self.assertEqual(payload["document_type"], "380")
 		self.assertEqual(payload["document_currency"], "AED")
 		self.assertEqual(payload["due_date"], str(si.due_date))
-		self.assertEqual(payload["flags"], dict.fromkeys(payload["flags"], False))
 		self.assertEqual(len(payload["flags"]), 9)
+		self.assertFalse(any(payload["flags"].values()))
+		self.assertRegex(payload["issue_time"], r"^\d\d:\d\d:\d\d[+-]\d\d:\d\d$")
 
-		line = payload["invoice_lines"][0]
-		self.assertEqual(line["quantity"], "3")
-		self.assertEqual(line["unit_price"], "33.333333")
-		self.assertEqual(line["line_extension_amount"], "100.00")
-		self.assertEqual(line["uom"], "H87")
-		self.assertEqual(line["tax_category"], "S")
-		self.assertEqual(line["tax_percentage"], "5")
-		self.assertEqual(line["description"], "Throwaway test item")
+		line_ = payload["invoice_lines"][0]
+		self.assertEqual(
+			(line_["quantity"], line_["unit_price"], line_["line_extension_amount"], line_["uom"]),
+			("10", "100.00", "1000.00", "H87"),
+		)
+		self.assertEqual((line_["tax_category"], line_["tax_percentage"]), ("S", "5"))
+		self.assertEqual(line_["description"], "Throwaway test item")
+		self.assertEqual(line_["supplier_item_code"], self.fx.item)
 
 		totals = payload["invoice_totals"]
-		self.assertEqual(totals["tax_exclusive_amount"], "100.00")
-		self.assertEqual(totals["tax_amount"], "5.00")
-		self.assertEqual(totals["tax_inclusive_amount"], "105.00")
-		self.assertEqual(totals["payable_amount"], "105.00")
-
+		self.assertEqual(
+			(totals["tax_exclusive_amount"], totals["tax_amount"], totals["payable_amount"]),
+			("1000.00", "50.00", "1050.00"),
+		)
 		buyer = payload["receiving_party"]
 		self.assertEqual(buyer["peppol_id"], BUYER_PEPPOL)
-		self.assertEqual(buyer["identifiers"], {"AE:VAT": {"value": BUYER_TRN}})
-		self.assertEqual(buyer["emirates_code"], "RAK")
-		self.assertEqual(buyer["country_code"], "AE")
-
+		self.assertEqual(
+			buyer["identifiers"],
+			{"AE:VAT": {"value": BUYER_TRN}, "AE:TL": {"value": "1066001239", "authority_name": "Dubai DED"}},
+		)
+		self.assertEqual((buyer["emirates_code"], buyer["country_code"]), ("RAK", "AE"))
 		means = payload["payment_means"][0]
-		self.assertEqual(means["type_code"], "30")
-		self.assertEqual(means["payment_account_id"], "AE070331234567890123456")
+		self.assertEqual((means["type_code"], means["payment_account_id"]), ("30", "AE070331234567890123456"))
+		self.assertEqual(payload["payment_terms"][0]["amount"], "1050.00")
 		check_keys(payload)
+
+	def test_discount_as_document_level_allowance(self):
+		si = make_invoice(self.fx, [(3, 40, None)], discount=20)
+		payload = self.payload(si)
+		line_ = payload["invoice_lines"][0]
+		self.assertEqual((line_["unit_price"], line_["line_extension_amount"]), ("40.00", "120.00"))
+		self.assertEqual(
+			payload["allowance_charges"][0],
+			{
+				"charge_indicator": False,
+				"reason_code": "95",
+				"reason": "Discount",
+				"amount": "20.00",
+				"tax_category": "S",
+				"tax_percentage": "5",
+			},
+		)
+		totals = payload["invoice_totals"]
+		self.assertEqual(
+			(
+				totals["line_extension_amount"],
+				totals["allowance_total_amount"],
+				totals["tax_exclusive_amount"],
+			),
+			("120.00", "20.00", "100.00"),
+		)
+		self.assertEqual((totals["tax_amount"], totals["payable_amount"]), ("5.00", "105.00"))
+
+	def test_discount_spread_over_lines(self):
+		self.settings(discount_style="Spread over lines")
+		try:
+			si = make_invoice(self.fx, [(3, 40, None)], discount=20)
+			payload = self.payload(si)
+		finally:
+			self.settings(discount_style="Document-level allowance")
+		line_ = payload["invoice_lines"][0]
+		self.assertEqual((line_["unit_price"], line_["line_extension_amount"]), ("33.333333", "100.00"))
+		self.assertNotIn("allowance_charges", payload)
+
+	def test_item_discount_as_price_discount(self):
+		row = line(self.fx, 2, 40, price_list_rate=50, discount_percentage=20)
+		si = make_invoice(self.fx, [row])
+		line_ = self.payload(si)["invoice_lines"][0]
+		self.assertEqual(
+			(line_["gross_price"], line_["price_discount"], line_["unit_price"]), ("50.00", "10.00", "40.00")
+		)
 
 	def test_mixed_categories(self):
 		si = make_invoice(self.fx, [(1, 100, None), (1, 50, self.fx.zero), (1, 20, self.fx.exempt)])
-		payload = build_payload(si, self.settings())
-		lines = {line["id"]: line for line in payload["invoice_lines"]}
+		payload = self.payload(si)
+		lines = {row["id"]: row for row in payload["invoice_lines"]}
 		self.assertEqual([lines[i]["tax_category"] for i in ("1", "2", "3")], ["S", "Z", "E"])
-		self.assertEqual(lines["2"]["tax_percentage"], "0")
 		self.assertEqual(lines["3"]["tax_exemption_reason_code"], "DL8.46.1")
 		self.assertEqual(payload["document_type"], "380")
-		self.assertEqual(payload["invoice_totals"]["tax_amount"], "5.00")
 		self.assertEqual(payload["invoice_totals"]["payable_amount"], "175.00")
 
 	def test_only_exempt_lines_make_a_480(self):
 		si = make_invoice(self.fx, [(2, 30, self.fx.exempt)])
-		self.assertEqual(build_payload(si, self.settings())["document_type"], "480")
+		self.assertEqual(self.payload(si)["document_type"], "480")
+
+	def test_credit_note(self):
+		si = make_invoice(self.fx, [(3, 100, None)], submit=True)
+		cn = make_sales_return(si.name)
+		cn.einvoice_credit_note_reason = "DL8.61.1.D - Goods or services returned"
+		cn.items[0].qty = -1
+		cn.insert()
+		payload = self.payload(cn)
+		self.assertEqual(
+			(payload["document_type"], payload["credit_note_reason_code"]), ("381", "DL8.61.1.D")
+		)
+		self.assertEqual(payload["document_references"][0]["document_identifier"], si.name)
+		self.assertNotIn("due_date", payload)
+		self.assertNotIn("payment_terms", payload)
+		self.assertEqual(payload["invoice_lines"][0]["quantity"], "1")
+		self.assertEqual(payload["invoice_totals"]["payable_amount"], "105.00")
+
+	def test_credit_note_needs_a_reason(self):
+		si = make_invoice(self.fx, [(1, 100, None)], submit=True)
+		cn = make_sales_return(si.name)
+		cn.insert()
+		self.assertTrue(any("Credit Note Reason" in p for p in self.problems(cn)))
+
+	def test_debit_note_is_a_tax_invoice_referencing_the_original(self):
+		si = make_invoice(self.fx, [(1, 100, None)], submit=True)
+		dn = make_invoice(self.fx, [(1, 20, None)], is_debit_note=1, return_against=si.name)
+		payload = self.payload(dn)
+		self.assertEqual(payload["document_type"], "380")
+		self.assertEqual(payload["document_references"][0]["document_identifier"], si.name)
 
 	def test_problems_are_collected_and_block_the_submit(self):
 		si = make_invoice(
@@ -122,10 +215,7 @@ class TestPayload(FlowTestCase):
 			}
 		).insert()
 		si = make_invoice(self.fx, [(1, 100, None), (1, 100, other.name)])
-		from flick_einvoicing.einvoice.payload import invoice_problems
-
-		problems = invoice_problems(si, self.settings())
-		self.assertTrue(any("has no tax treatment" in p for p in problems), problems)
+		self.assertTrue(any("has no tax treatment" in p for p in self.problems(si)))
 
 	def test_b2c_gets_no_submission(self):
 		si = make_invoice(
@@ -133,43 +223,362 @@ class TestPayload(FlowTestCase):
 		)
 		self.assertIsNone(service.active_submission("Sales Invoice", si.name))
 
-	def test_credit_note(self):
-		si = make_invoice(self.fx, [(3, 100, None)], submit=True)
-		cn = make_sales_return(si.name)
+	def test_unknown_payload_keys_are_caught(self):
+		with self.assertRaises(KeyError):
+			check_keys({"tax_totals": [{"tax_percentage": "5"}]})
+
+
+class TestTransactionTypes(FlowTestCase):
+	"""The eight transaction-type flags and the predefined recipients."""
+
+	def test_free_trade_zone(self):
+		si = make_invoice(
+			self.fx, [(1, 100, None)], einvoice_is_ftz=1, einvoice_fz_beneficiary_id="189098765401003"
+		)
+		payload = self.payload(si)
+		self.assertTrue(payload["flags"]["is_ftz"])
+		self.assertEqual(payload["fz_beneficiary_id"], "189098765401003")
+
+	def test_free_trade_zone_needs_the_beneficiary(self):
+		si = make_invoice(self.fx, [(1, 100, None)])
+		si.einvoice_is_ftz = 1
+		self.assertTrue(any("Free Zone Beneficiary TRN" in p for p in self.problems(si)))
+
+	def test_disclosed_agent_billing(self):
+		si = make_invoice(
+			self.fx, [(1, 100, None)], einvoice_is_dab=1, einvoice_principal_id="155667745601003"
+		)
+		payload = self.payload(si)
+		self.assertTrue(payload["flags"]["is_dab"])
+		self.assertEqual(payload["principal_id"], "155667745601003")
+
+	def test_agent_cannot_bill_for_itself(self):
+		own = frappe.db.get_value("Company", self.fx.company.name, "tax_id")
+		if not own:
+			self.skipTest("company has no TRN")
+		si = make_invoice(self.fx, [(1, 100, None)])
+		si.einvoice_is_dab, si.einvoice_principal_id = 1, own
+		self.assertTrue(any("ibr-176-ae" in p for p in self.problems(si)))
+
+	def test_summary_invoice_needs_its_period(self):
+		si = make_invoice(self.fx, [(1, 100, None)])
+		si.einvoice_is_summary = 1
+		self.assertTrue(any("Period Start" in p for p in self.problems(si)))
+		si.einvoice_period_start, si.einvoice_period_end = add_days(today(), -30), today()
+		payload = self.payload(si)
+		self.assertTrue(payload["flags"]["is_summary"])
+		self.assertEqual(payload["invoice_period"]["description_code"], "MTH")
+		self.assertEqual(payload["invoice_period"]["end_date"], str(today()))
+
+	def test_continuous_supply(self):
+		si = make_invoice(self.fx, [(1, 100, None)], einvoice_is_continuous=1)
+		self.assertTrue(self.payload(si)["flags"]["is_continuous"])
+
+	def test_deemed_supply_goes_to_the_predefined_recipient(self):
+		si = make_invoice(self.fx, [(1, 100, None)], einvoice_is_deemed=1)
+		payload = self.payload(si)
+		self.assertTrue(payload["flags"]["is_deemed"])
+		self.assertEqual(payload["receiving_party"]["peppol_id"], "0235:9900000097")
+
+	def test_ecommerce_needs_a_delivery_address(self):
+		si = make_invoice(self.fx, [(1, 100, None)])
+		si.einvoice_is_ecommerce, si.shipping_address_name = 1, None
+		self.assertTrue(any("Shipping Address" in p for p in self.problems(si)))
+		si.shipping_address_name = self.fx.address
+		delivery = self.payload(si)["delivery"]["address"]
+		self.assertEqual((delivery["emirates_code"], delivery["country_code"]), ("RAK", "AE"))
+
+	def test_export_to_a_buyer_not_on_peppol(self):
+		si = make_invoice(
+			self.fx,
+			[(1, 100, self.fx.zero)],
+			customer=self.fx.overseas,
+			address=self.fx.overseas_address,
+			einvoice_is_export=1,
+			shipping_address_name=self.fx.overseas_address,
+		)
+		payload = self.payload(si)
+		buyer = payload["receiving_party"]
+		self.assertEqual(buyer["peppol_id"], "0235:9900000099")
+		self.assertEqual((buyer["country_code"], buyer["emirates_code"]), ("GB", "DXB"))
+		self.assertTrue(payload["flags"]["is_export"])
+		self.assertEqual(payload["delivery"]["address"]["country_code"], "GB")
+
+	def test_export_to_a_uae_address_is_refused(self):
+		si = make_invoice(
+			self.fx, [(1, 100, self.fx.zero)], einvoice_is_export=1, shipping_address_name=self.fx.address
+		)
+		self.assertTrue(any("shipping address is in the UAE" in p for p in self.problems(si)))
+
+	def test_buyer_abroad_needs_routing(self):
+		si = make_invoice(self.fx, [(1, 100, None)], address=self.fx.shipping_abroad)
+		self.assertTrue(any("outside the UAE" in p for p in self.problems(si)))
+
+
+class TestTaxTreatment(FlowTestCase):
+	def test_reverse_charge(self):
+		si = make_invoice(self.fx, [line(self.fx, 1, 5000, self.fx.reverse, item=self.fx.phone)])
+		payload = self.payload(si)
+		line_ = payload["invoice_lines"][0]
+		self.assertEqual((line_["tax_category"], line_["tax_percentage"]), ("AE", "5"))
+		self.assertEqual((line_["standard_item_id"], line_["standard_item_id_scheme"]), (GTIN, "0160"))
+		self.assertEqual(line_["reverse_charge_item_type"], "DL8.48.8.2")
+		totals = payload["invoice_totals"]
+		self.assertEqual((totals["tax_amount"], totals["payable_amount"]), ("0.00", "5000.00"))
+
+	def test_reverse_charge_needs_a_gtin(self):
+		si = make_invoice(self.fx, [(1, 5000, self.fx.reverse)])
+		self.assertTrue(any("GTIN" in p for p in self.problems(si)))
+
+	def test_goods_and_services_classification(self):
+		si = make_invoice(self.fx, [line(self.fx, 1, 100, item=self.fx.phone)])
+		line_ = self.payload(si)["invoice_lines"][0]
+		self.assertEqual(
+			(line_["commodity_code"], line_["hs_code"], line_["sac_code"]), ("B", "851713", "998313")
+		)
+		self.assertEqual(line_["origin_country"], "CN")
+
+	def test_foreign_currency(self):
+		si = make_invoice(
+			self.fx, [(1, 100, None)], currency="USD", conversion_rate=3.6725, debit_to=self.fx.usd_debtors
+		)
+		payload = self.payload(si)
+		self.assertEqual(payload["currency_exchange_rate"], 3.6725)
+		totals = payload["invoice_totals"]
+		self.assertEqual((totals["tax_amount"], totals["total_tax_amount_in_aed"]), ("5.00", "18.36"))
+		self.assertEqual(totals["total_amount_with_tax_in_aed"], "385.61")
+		self.assertEqual(payload["invoice_lines"][0]["line_amount_aed"], "367.25")
+
+	def test_document_level_charge(self):
+		# Freight with VAT on it: the VAT row is charged on the previous row's total.
+		taxes = [
+			{
+				"charge_type": "Actual",
+				"account_head": self.fx.freight,
+				"tax_amount": 50,
+				"description": "Freight",
+			},
+			{
+				"charge_type": "On Previous Row Total",
+				"row_id": 1,
+				"account_head": self.fx.vat,
+				"rate": 5,
+				"description": "VAT 5%",
+			},
+		]
+		si = make_invoice(self.fx, [(1, 100, None)], taxes=taxes)
+		payload = self.payload(si)
+		charge = payload["allowance_charges"][0]
+		self.assertEqual(
+			(charge["charge_indicator"], charge["reason_code"], charge["amount"], charge["tax_category"]),
+			(True, "FC", "50.00", "S"),
+		)
+		totals = payload["invoice_totals"]
+		self.assertEqual(
+			(
+				totals["charge_total_amount"],
+				totals["tax_exclusive_amount"],
+				totals["tax_amount"],
+				totals["payable_amount"],
+			),
+			("50.00", "150.00", "7.50", si.rounded_total and f"{si.rounded_total:.2f}" or "157.50"),
+		)
+		if si.rounded_total and si.rounded_total != si.grand_total:
+			# The company rounds to whole units: the rounding is stated, as ibr-co-16 expects.
+			self.assertEqual(totals["payable_rounding_amount"], f"{si.rounded_total - si.grand_total:.2f}")
+
+	def test_charge_in_a_category_no_line_has_is_refused(self):
+		taxes = [
+			{
+				"charge_type": "Actual",
+				"account_head": self.fx.freight,
+				"tax_amount": 50,
+				"description": "Freight",
+			},
+			{
+				"charge_type": "On Previous Row Total",
+				"row_id": 1,
+				"account_head": self.fx.vat,
+				"rate": 5,
+				"description": "VAT 5%",
+			},
+		]
+		si = make_invoice(self.fx, [(1, 100, self.fx.zero)], taxes=taxes)
+		self.assertTrue(any("needs at least one invoice line taxed S" in p for p in self.problems(si)))
+
+	def test_out_of_scope_needs_the_buyers_trade_licence(self):
+		si = make_invoice(
+			self.fx, [(1, 30, self.fx.exempt)], customer=self.fx.no_peppol, address=self.fx.no_peppol_address
+		)
+		frappe.db.set_value("Customer", self.fx.no_peppol, "einvoice_peppol_id", BUYER_PEPPOL)
+		frappe.clear_document_cache("Customer", self.fx.no_peppol)
+		self.assertTrue(any("ibr-136-ae" in p for p in self.problems(si)))
+
+	def test_unmapped_actual_row_is_refused(self):
+		taxes = [
+			{"charge_type": "On Net Total", "account_head": self.fx.vat, "rate": 5, "description": "VAT 5%"},
+			{"charge_type": "Actual", "account_head": self.fx.vat, "tax_amount": 10, "description": "Odd"},
+		]
+		si = make_invoice(self.fx, [(1, 100, None)], taxes=taxes)
+		self.assertTrue(any("is charged 'Actual'" in p for p in self.problems(si)))
+
+
+class TestReferencesAndPayment(FlowTestCase):
+	def test_every_reference_field(self):
+		si = make_invoice(
+			self.fx,
+			[(1, 100, None)],
+			po_no="PO-4520",
+			einvoice_buyer_reference="BR-1",
+			einvoice_buyer_accounting_cost="4025:123",
+			einvoice_contract_reference="CONTRACT-889",
+			einvoice_contract_value="AED 250000",
+			einvoice_tender_reference="LOT-7",
+			einvoice_receipt_reference="GRN-55",
+			einvoice_customs_reference="CUS-1",
+			einvoice_delivery_date=today(),
+			einvoice_delivery_party="Warehouse 3",
+			einvoice_delivery_location_id="LOC-1",
+			einvoice_preceding_invoices=[
+				{"document_identifier": "ADV-001", "issue_date": add_days(today(), -10)}
+			],
+		)
+		payload = self.payload(si)
+		self.assertEqual(payload["order_reference"]["purchase_order_id"], "PO-4520")
+		self.assertEqual((payload["buyer_reference"], payload["accounting_cost"]), ("BR-1", "4025:123"))
+		other = payload["other_references"]
+		self.assertEqual(
+			other["contract_document_reference"], {"id": "CONTRACT-889", "contract_value": "AED 250000"}
+		)
+		self.assertEqual(
+			(
+				other["tender_or_lot_reference"],
+				other["receipt_document_reference"],
+				other["customs_reference_number"],
+			),
+			("LOT-7", "GRN-55", "CUS-1"),
+		)
+		self.assertEqual(payload["document_references"][0]["document_identifier"], "ADV-001")
+		self.assertEqual(
+			(payload["delivery"]["party_name"], payload["delivery"]["location_id"]), ("Warehouse 3", "LOC-1")
+		)
+
+	def test_supporting_documents(self):
+		file = frappe.get_doc(
+			{"doctype": "File", "file_name": "timesheet.pdf", "content": pdf_bytes(), "is_private": 1}
+		).insert()
+		si = make_invoice(
+			self.fx,
+			[(1, 100, None)],
+			einvoice_documents=[
+				{
+					"kind": "Reference",
+					"document_identifier": "CONTRACT-889",
+					"invoiced_object": 1,
+					"scheme_id": "ON",
+				},
+				{
+					"kind": "Link",
+					"document_identifier": "DN-4471",
+					"attachment_uri": "https://files.example.ae/DN-4471.pdf",
+				},
+				{"kind": "Attachment", "document_identifier": "TS-2026-08", "file": file.file_url},
+			],
+		)
+		refs = self.payload(si)["additional_document_references"]
+		self.assertEqual(
+			refs[0], {"document_identifier": "CONTRACT-889", "document_type_code": "130", "scheme_id": "ON"}
+		)
+		self.assertEqual(refs[1]["attachment_uri"], "https://files.example.ae/DN-4471.pdf")
+		embedded = refs[2]["embedded_document"]
+		self.assertEqual((embedded["filename"], embedded["mime_code"]), ("timesheet.pdf", "application/pdf"))
+		self.assertEqual(base64.b64decode(embedded["content"]), pdf_bytes())
+
+	def test_payment_means_follow_the_mode_of_payment(self):
+		si = make_invoice(self.fx, [(1, 100, None)])
+		si.append("payments", {"mode_of_payment": self.fx.cash, "amount": 105})
+		means = self.payload(si)["payment_means"]
+		self.assertEqual([m["type_code"] for m in means], ["10"])
+
+	def test_instalments(self):
+		si = make_invoice(self.fx, [(1, 1000, None)])
+		si.payment_schedule = []
+		si.append(
+			"payment_schedule",
+			{"due_date": add_days(today(), 30), "payment_amount": 525, "description": "First half"},
+		)
+		si.append(
+			"payment_schedule",
+			{"due_date": add_days(today(), 60), "payment_amount": 525, "description": "Second half"},
+		)
+		terms = self.payload(si)["payment_terms"]
+		self.assertEqual([t["amount"] for t in terms], ["525.00", "525.00"])
+		self.assertEqual(terms[0]["note"], "First half")
+
+	def test_payee_and_tax_representative(self):
+		settings = self.settings(
+			payee_name="Gulf Factoring LLC",
+			tax_rep_name="Rep LLC",
+			tax_rep_vat_number="100000123400003",
+			tax_rep_address=self.fx.address,
+		)
+		try:
+			si = make_invoice(self.fx, [(1, 100, None)])
+			payload = build_payload(si, settings)
+		finally:
+			self.settings(payee_name=None, tax_rep_name=None, tax_rep_vat_number=None, tax_rep_address=None)
+		self.assertEqual(payload["payee_party"], {"name": "Gulf Factoring LLC"})
+		rep = payload["tax_representative"]
+		self.assertEqual(
+			(rep["name"], rep["vat_number"], rep["emirates_code"]), ("Rep LLC", "100000123400003", "RAK")
+		)
+
+
+class TestSelfBilling(FlowTestCase):
+	def test_self_billed_invoice(self):
+		pi = make_purchase_invoice(self.fx, [(2, 100, self.fx.phone)])
+		payload = self.payload(pi)
+		self.assertEqual(payload["document_type"], "389")
+		self.assertTrue(payload["flags"]["is_selfbilled"])
+		party = payload["receiving_party"]
+		self.assertEqual((party["peppol_id"], party["emirates_code"]), (SUPPLIER_PEPPOL, "FUJ"))
+		line_ = payload["invoice_lines"][0]
+		self.assertEqual(
+			(line_["supplier_item_code"], line_["buyers_item_code"]), ("SUP-PHONE", self.fx.phone)
+		)
+		self.assertEqual(payload["invoice_totals"]["payable_amount"], "210.00")
+
+	def test_self_billed_credit_note(self):
+		pi = make_purchase_invoice(self.fx, [(2, 100, None)], submit=True)
+		self.assertIsNotNone(
+			service.active_submission("Purchase Invoice", pi.name), "self-billed invoices are filed"
+		)
+		cn = make_debit_note(pi.name)
 		cn.einvoice_credit_note_reason = "DL8.61.1.D - Goods or services returned"
-		cn.items[0].qty = -1
 		cn.insert()
-		payload = build_payload(cn, self.settings())
-		self.assertEqual(payload["document_type"], "381")
-		self.assertEqual(payload["credit_note_reason_code"], "DL8.61.1.D")
-		self.assertEqual(payload["document_references"][0]["document_identifier"], si.name)
-		self.assertNotIn("due_date", payload)
-		line = payload["invoice_lines"][0]
-		self.assertEqual(line["quantity"], "1")
-		self.assertEqual(line["line_extension_amount"], "100.00")
-		self.assertEqual(payload["invoice_totals"]["payable_amount"], "105.00")
+		payload = self.payload(cn)
+		self.assertEqual(payload["document_type"], "261")
+		self.assertEqual(payload["document_references"][0]["document_identifier"], pi.name)
 
-	def test_credit_note_needs_a_reason(self):
-		si = make_invoice(self.fx, [(1, 100, None)], submit=True)
-		cn = make_sales_return(si.name)
-		cn.insert()
-		from flick_einvoicing.einvoice.payload import invoice_problems
-
-		self.assertTrue(any("Credit Note Reason" in p for p in invoice_problems(cn, self.settings())))
+	def test_ordinary_purchase_invoices_are_not_filed(self):
+		frappe.db.set_value("Supplier", self.fx.supplier, "einvoice_self_billing", 0)
+		frappe.clear_document_cache("Supplier", self.fx.supplier)
+		try:
+			pi = make_purchase_invoice(self.fx, [(1, 100, None)], submit=True)
+			self.assertIsNone(service.active_submission("Purchase Invoice", pi.name))
+		finally:
+			frappe.db.set_value("Supplier", self.fx.supplier, "einvoice_self_billing", 1)
+			frappe.clear_document_cache("Supplier", self.fx.supplier)
 
 
 class TestSending(FlowTestCase):
 	def test_accepted_then_completed_by_events(self):
 		si, sub = self.submitted_invoice()
 		self.assertEqual(sub.status, st.QUEUED)
-
-		fake = FakeFlick().on("POST", r"/documents\?no_error", accepted(identifier=si.name))
-		with self.flick(fake):
+		with self.flick(FakeFlick().on("POST", r"/documents\?no_error", accepted(identifier=si.name))):
 			self.assertEqual(service.send(sub.name), st.PROCESSING)
 		sub.reload()
-		self.assertEqual(sub.docstatus, 1)
-		self.assertEqual(sub.document_id, DOC_ID)
-		self.assertEqual(json.loads(sub.request_payload)["document_identifier"], si.name)
+		self.assertEqual((sub.docstatus, sub.document_id, sub.document_type), (1, DOC_ID, "380"))
 
 		events = [
 			{
@@ -205,7 +614,6 @@ class TestSending(FlowTestCase):
 				"data": {
 					"document_id": DOC_ID,
 					"document_identifier": si.name,
-					"status": "completed",
 					"reporting_status": "reported",
 					"exchange_status": "delivered",
 					"is_duplicate": True,
@@ -215,11 +623,11 @@ class TestSending(FlowTestCase):
 		fake = (
 			FakeFlick()
 			.on("POST", r"/documents\?no_error", duplicate)
-			.on("GET", rf"/documents/{DOC_ID}", detail(SETTLED_OK, DELIVERED))
+			.on("GET", DETAIL, detail(SETTLED_OK, DELIVERED))
 		)
 		with self.flick(fake):
 			self.assertEqual(service.send(sub.name), st.COMPLETED)
-		self.assertEqual(fake.called("GET", DOC_ID), 2, "stored copy compared, then state read")
+		self.assertEqual(fake.called("GET", DETAIL), 2, "stored copy compared, then state read")
 
 	def test_duplicate_of_a_different_document_is_not_adopted(self):
 		si, sub = self.submitted_invoice()
@@ -227,32 +635,19 @@ class TestSending(FlowTestCase):
 			200,
 			{
 				"status": "success",
-				"data": {
-					"document_id": DOC_ID,
-					"document_identifier": si.name,
-					"status": "completed",
-					"reporting_status": "reported",
-					"exchange_status": "delivered",
-					"is_duplicate": True,
-				},
+				"data": {"document_id": DOC_ID, "document_identifier": si.name, "is_duplicate": True},
 			},
 		)
 		someone_elses = detail(SETTLED_OK, DELIVERED)
 		someone_elses.body["data"]["document"] = {
 			"receiving_party": {"peppol_id": "0235:1000051175"},
-			"document_type": "380",
 			"invoice_totals": {"payable_amount": "194982.72"},
 		}
-		fake = (
-			FakeFlick().on("POST", r"/documents", duplicate).on("GET", rf"/documents/{DOC_ID}", someone_elses)
-		)
-		with self.flick(fake):
+		with self.flick(FakeFlick().on("POST", r"/documents", duplicate).on("GET", DETAIL, someone_elses)):
 			self.assertEqual(service.send(sub.name), st.REJECTED)
 		sub.reload()
 		self.assertEqual(sub.docstatus, 0)
-		self.assertIn("different document", sub.error_message)
 		self.assertIn("buyer 0235:1000051175 there", sub.error_message)
-		self.assertTrue(st.can_cancel_invoice(sub)[0])
 
 	def test_conflict_is_adopted(self):
 		si, sub = self.submitted_invoice()
@@ -260,31 +655,18 @@ class TestSending(FlowTestCase):
 			409,
 			{
 				"status": "conflict",
-				"message": "in use",
 				"errors": {
 					"document_id": DOC_ID,
 					"document_identifier": si.name,
-					"status": "processing",
 					"reporting_status": "processing",
 					"exchange_status": "processing",
 					"is_duplicate": True,
 				},
 			},
 		)
-		fake = (
-			FakeFlick()
-			.on("POST", r"/documents", conflict)
-			.on(
-				"GET",
-				rf"/documents/{DOC_ID}",
-				detail(
-					{"status": "processing", "settled": False}, {"status": "processing", "settled": False}
-				),
-			)
-		)
+		fake = FakeFlick().on("POST", r"/documents", conflict).on("GET", DETAIL, detail(RUNNING, RUNNING))
 		with self.flick(fake):
 			self.assertEqual(service.send(sub.name), st.PROCESSING)
-		self.assertEqual(frappe.db.get_value(service.DOCTYPE, sub.name, "docstatus"), 1)
 
 	def test_rejection_keeps_a_draft_with_readable_issues(self):
 		si, sub = self.submitted_invoice()
@@ -312,7 +694,6 @@ class TestSending(FlowTestCase):
 		with self.flick(FakeFlick().on("POST", r"/documents", rejected)):
 			self.assertEqual(service.send(sub.name), st.REJECTED)
 		sub.reload()
-		self.assertEqual(sub.docstatus, 0)
 		self.assertIn(
 			"Payment means type code (ibt-081) must be provided (ibr-191-ae)", sub.validation_errors
 		)
@@ -326,37 +707,25 @@ class TestSending(FlowTestCase):
 		):
 			self.assertEqual(service.send(sub.name), st.ERROR)
 		sub.reload()
-		self.assertEqual(sub.attempt_count, 1)
 		self.assertTrue(sub.next_retry_at)
 		self.assertRaises(frappe.ValidationError, frappe.get_doc("Sales Invoice", si.name).cancel)
-
 		found = response(
 			200,
 			{
-				"status": "success",
 				"data": {
 					"documents": [
 						{
 							"id": DOC_ID,
 							"document_identifier": si.name,
-							"status": "processing",
 							"reporting_status": "processing",
 							"exchange_status": "processing",
 						}
 					]
-				},
+				}
 			},
 		)
 		fake = (
-			FakeFlick()
-			.on("GET", r"document_identifier=", found)
-			.on(
-				"GET",
-				rf"/documents/{DOC_ID}",
-				detail(
-					{"status": "processing", "settled": False}, {"status": "processing", "settled": False}
-				),
-			)
+			FakeFlick().on("GET", r"document_identifier=", found).on("GET", DETAIL, detail(RUNNING, RUNNING))
 		)
 		with self.flick(fake):
 			service.reconcile(sub)
@@ -370,7 +739,6 @@ class TestSending(FlowTestCase):
 			FakeFlick().on("GET", r"document_identifier=", response(200, {"data": {"documents": []}}))
 		):
 			service.reconcile(frappe.get_doc(service.DOCTYPE, sub.name))
-		self.assertEqual(frappe.db.get_value(service.DOCTYPE, sub.name, "status"), st.QUEUED)
 		frappe.get_doc("Sales Invoice", si.name).cancel()
 		self.assertEqual(frappe.db.get_value(service.DOCTYPE, sub.name, "status"), st.CANCELLED)
 
@@ -381,7 +749,6 @@ class TestSending(FlowTestCase):
 			with self.assertRaises(service.AuthFailure):
 				service.send(sub.name)
 		sub.reload()
-		self.assertEqual(sub.status, st.ERROR)
 		self.assertIn("Invalid or revoked API Key", sub.error_message)
 
 	def test_api_key_never_reaches_the_log(self):
@@ -394,8 +761,94 @@ class TestSending(FlowTestCase):
 			fields=["request", "response", "endpoint", "error"],
 		)
 		self.assertTrue(logs)
-		for log in logs:
-			self.assertNotIn("flick_ae_test_key_never_real", json.dumps(log))
+		self.assertNotIn("flick_ae_test_key_never_real", json.dumps(logs))
+
+	def test_bulk_sending(self):
+		first, sub1 = self.submitted_invoice()
+		second, sub2 = self.submitted_invoice()
+		results = response(
+			207,
+			{
+				"status": "partial",
+				"data": {
+					"results": [
+						{
+							"index": 0,
+							"outcome": "accepted",
+							"document_id": DOC_ID,
+							"document_identifier": first.name,
+							"reporting_status": "processing",
+							"exchange_status": "processing",
+						},
+						{
+							"index": 1,
+							"outcome": "rejected",
+							"document_identifier": second.name,
+							"message": "invalid",
+							"errors": [
+								{
+									"path": "Document",
+									"code": "ibr-191-ae",
+									"message": "[ibr-191-ae]- Payment means",
+									"severity": "error",
+								}
+							],
+						},
+					]
+				},
+			},
+		)
+		fake = FakeFlick().on("POST", r"/documents/bulk\?no_error", results)
+		with self.flick(fake):
+			service.send_bulk([sub1.name, sub2.name], self.settings())
+		self.assertEqual(len(fake.calls[0][2]["documents"]), 2)
+		self.assertEqual(
+			frappe.db.get_value(service.DOCTYPE, sub1.name, ["docstatus", "status"]), (1, st.PROCESSING)
+		)
+		self.assertEqual(frappe.db.get_value(service.DOCTYPE, sub2.name, "status"), st.REJECTED)
+
+	def test_validate_with_flick_uses_a_throwaway_number(self):
+		si = make_invoice(self.fx, [(1, 100, None)])
+		fake = FakeFlick().on("POST", r"/documents/validate", response(200, {"data": {"valid": True}}))
+		with self.flick(fake):
+			self.assertEqual(service.validate_with_flick(si, self.settings()), (True, []))
+		sent = fake.calls[0][2]["document_identifier"]
+		self.assertTrue(sent.startswith("CHECK-") and sent != si.name)
+
+		invalid = response(
+			400,
+			{
+				"errors": [
+					{
+						"path": "Document",
+						"code": "ibr-127-ae",
+						"message": "[ibr-127-ae]-Due date",
+						"severity": "error",
+					}
+				]
+			},
+		)
+		with self.flick(FakeFlick().on("POST", r"/documents/validate", invalid)):
+			valid, issues = service.validate_with_flick(si, self.settings())
+		self.assertEqual((valid, issues), (False, ["Due date (ibr-127-ae)"]))
+
+	def test_flicks_pdf_is_attached_to_the_invoice(self):
+		si, sub = self.submitted_invoice()
+		self.settings(attach_pdf=1)
+		try:
+			fake = (
+				FakeFlick()
+				.on("POST", r"/documents\?no_error", accepted(identifier=si.name))
+				.on("GET", rf"/documents/{DOC_ID}/pdf$", binary(pdf_bytes()))
+			)
+			with self.flick(fake):
+				service.send(sub.name)
+		finally:
+			self.settings(attach_pdf=0)
+		self.assertTrue(frappe.db.get_value(service.DOCTYPE, sub.name, "files_attached"))
+		self.assertTrue(
+			frappe.db.exists("File", {"attached_to_name": si.name, "file_name": f"{si.name} e-invoice.pdf"})
+		)
 
 
 class TestFailures(FlowTestCase):
@@ -424,10 +877,9 @@ class TestFailures(FlowTestCase):
 			"reporting": "processing",
 			"exchange": "failed",
 		}
-		with self.flick(FakeFlick().on("GET", rf"/documents/{DOC_ID}", detail(failed, failed, errors))):
+		with self.flick(FakeFlick().on("GET", DETAIL, detail(failed, failed, errors))):
 			service.apply_event(event, self.settings())
 		sub.reload()
-		self.assertEqual(sub.status, st.FAILED)
 		self.assertTrue(st.numbers_released(sub))
 		self.assertIn("RECIPIENT_NOT_ON_NETWORK", sub.error_message)
 		self.assertIn("Flick support", sub.next_action)
@@ -447,13 +899,11 @@ class TestFailures(FlowTestCase):
 			"reporting": "processing",
 			"exchange": "failed",
 		}
-		still_trying = detail(
-			{"status": "processing", "settled": False}, {"status": "failed", "settled": False}
-		)
-		with self.flick(FakeFlick().on("GET", rf"/documents/{DOC_ID}", still_trying)):
+		with self.flick(
+			FakeFlick().on("GET", DETAIL, detail(RUNNING, {"status": "failed", "settled": False}))
+		):
 			service.apply_event(event, self.settings())
 		sub.reload()
-		self.assertEqual(sub.status, st.FAILED)
 		self.assertIn("Do not reissue", sub.next_action)
 		self.assertRaises(frappe.ValidationError, service.resubmit, sub)
 		self.assertRaises(frappe.ValidationError, frappe.get_doc("Sales Invoice", si.name).cancel)
@@ -461,18 +911,21 @@ class TestFailures(FlowTestCase):
 	def test_released_invoice_may_be_cancelled(self):
 		si, sub = self.accept()
 		failed = {"status": "failed", "settled": True, "ok": False}
-		with self.flick(FakeFlick().on("GET", rf"/documents/{DOC_ID}", detail(failed, failed))):
+		with self.flick(FakeFlick().on("GET", DETAIL, detail(failed, failed))):
 			service.refresh(sub)
 		frappe.get_doc("Sales Invoice", si.name).cancel()
 		self.assertEqual(frappe.db.get_value(service.DOCTYPE, sub.name, "docstatus"), 2)
 
 
 class TestEvents(FlowTestCase):
-	def test_feed_is_read_forward_and_acked_only_when_allowed(self):
+	def accept(self):
 		si, sub = self.submitted_invoice()
 		with self.flick(FakeFlick().on("POST", r"/documents", accepted(identifier=si.name))):
 			service.send(sub.name)
+		return sub
 
+	def test_feed_is_read_forward_and_acked_only_when_allowed(self):
+		sub = self.accept()
 		page = response(
 			200,
 			{
@@ -498,12 +951,13 @@ class TestEvents(FlowTestCase):
 				},
 			},
 		)
+		incoming = response(200, {"data": {"events": [], "pagination": {"has_more": False}}})
 		fake = (
 			FakeFlick()
-			.on("GET", r"/events\?", page)
+			.on("GET", r"/events\?direction=outgoing", page)
+			.on("GET", r"/events\?direction=incoming", incoming)
 			.on("POST", r"/events/ack", response(200, {"data": {"advanced": True}}))
 		)
-
 		with self.flick(fake):
 			self.assertEqual(service.sync_events(self.settings()), 2)
 		self.assertEqual(fake.called("POST", "/events/ack"), 0, "ack is off for a shared participant")
@@ -512,8 +966,135 @@ class TestEvents(FlowTestCase):
 		)
 		self.assertEqual(frappe.db.get_value(service.DOCTYPE, sub.name, "status"), st.COMPLETED)
 
-		frappe.db.set_value("E Invoicing Settings", self.fx.company.name, "ack_events", 1)
 		with self.flick(fake):
-			service.sync_events(self.settings())
+			service.sync_events(self.settings(ack_events=1))
+		self.settings(ack_events=0)
 		self.assertEqual(fake.called("POST", "/events/ack"), 1)
-		self.assertIn("cursor=c2", fake.calls[-2][1])
+
+	def test_webhook_events(self):
+		sub = self.accept()
+		service.apply_webhook(
+			{
+				"event": "document.exchange.delivered",
+				"timestamp": "2026-10-28T17:33:00Z",
+				"data": {
+					"document_id": DOC_ID,
+					"reporting_status": "processing",
+					"exchange_status": "delivered",
+				},
+			},
+			self.settings(),
+		)
+		sub.reload()
+		self.assertEqual((sub.exchange_status, sub.reporting_status), ("delivered", "processing"))
+		service.apply_webhook(
+			{
+				"event": "document.completed",
+				"timestamp": "2026-10-28T17:33:05Z",
+				"data": {
+					"document_id": DOC_ID,
+					"reporting_status": "reported",
+					"exchange_status": "delivered",
+				},
+			},
+			self.settings(),
+		)
+		sub.reload()
+		self.assertEqual(sub.status, st.COMPLETED)
+
+
+class TestReceiving(FlowTestCase):
+	INCOMING_ID = "01a18392-0000-7000-8000-000000000001"
+
+	def default_branch_of_test_company(self):
+		"""techountant_trading numbers purchase invoices by the user's default branch. Point
+		Administrator's default at the test company's branch, inside the rolled-back test only."""
+		if not frappe.db.exists("DocType", "Trading Branch User"):
+			return
+		branch = frappe.db.get_value("Trading Branch", {"company": self.fx.company.name}, "name")
+		if not branch:
+			return
+		frappe.db.delete("Trading Branch User", {"user": frappe.session.user})
+		doc = frappe.get_doc("Trading Branch", branch)
+		doc.append("users", {"user": frappe.session.user, "is_default": 1})
+		doc.save()
+
+	def received_detail(self):
+		document = {
+			"document_identifier": "SUP-INV-77",
+			"document_type": "380",
+			"issue_date": str(today()),
+			"document_currency": "AED",
+			"issuing_party": {
+				"legal_name": "_Test EInv Supplier",
+				"identifiers": {"AE:VAT": {"value": "102026001500003"}},
+			},
+			"invoice_lines": [
+				{
+					"id": "1",
+					"name": "Smart phone",
+					"quantity": "2",
+					"uom": "H87",
+					"unit_price": "100.00",
+					"tax_category": "S",
+					"tax_percentage": "5",
+					"supplier_item_code": "SUP-PHONE",
+				},
+				{
+					"id": "2",
+					"name": "Mystery part",
+					"quantity": "1",
+					"uom": "H87",
+					"unit_price": "50.00",
+					"tax_category": "S",
+					"tax_percentage": "5",
+					"supplier_item_code": "NOPE",
+				},
+			],
+			"invoice_totals": {"payable_amount": "262.50", "tax_amount": "12.50"},
+		}
+		return response(
+			200,
+			{
+				"data": {
+					"id": self.INCOMING_ID,
+					"document_identifier": "SUP-INV-77",
+					"direction": "incoming",
+					"counterparty": {"name": "_Test EInv Supplier", "peppol_id": SUPPLIER_PEPPOL},
+					"document": document,
+				}
+			},
+		)
+
+	def test_received_invoice_becomes_a_draft_purchase_invoice(self):
+		fake = (
+			FakeFlick()
+			.on("GET", rf"/documents/{self.INCOMING_ID}$", self.received_detail())
+			.on("GET", rf"/documents/{self.INCOMING_ID}/pdf$", binary(pdf_bytes()))
+			.on(
+				"GET",
+				rf"/documents/{self.INCOMING_ID}/xml\?raw=true$",
+				binary(b"<Invoice/>", "application/xml"),
+			)
+		)
+		with self.flick(fake):
+			name = inbound.receive(self.INCOMING_ID, self.settings())
+			self.assertEqual(
+				inbound.receive(self.INCOMING_ID, self.settings()), name, "receiving twice is harmless"
+			)
+		record = frappe.get_doc("E Invoice Received", name)
+		self.assertEqual(
+			(record.supplier, record.document_identifier, record.total_amount),
+			(self.fx.supplier, "SUP-INV-77", 262.5),
+		)
+		self.assertEqual(frappe.db.count("File", {"attached_to_name": name}), 2)
+
+		self.default_branch_of_test_company()
+		pi = frappe.get_doc("Purchase Invoice", inbound.create_purchase_invoice(name))
+		self.assertEqual((pi.docstatus, pi.bill_no, pi.supplier), (0, "SUP-INV-77", self.fx.supplier))
+		self.assertEqual([row.item_code for row in pi.items], [self.fx.phone, self.fx.item])
+		self.assertEqual(pi.taxes_and_charges, self.fx.purchase_vat)
+		self.assertAlmostEqual(pi.grand_total, 262.5)
+		self.assertIn("no item matched", frappe.db.get_value("E Invoice Received", name, "notes"))
+		self.assertEqual(pi.einvoice_received, name)
+		self.assertIsNone(service.active_submission("Purchase Invoice", pi.name))

@@ -12,6 +12,9 @@ required_apps = ["erpnext"]
 doctype_js = {
 	"Sales Invoice": "public/js/invoice.js",
 	"POS Invoice": "public/js/invoice.js",
+	"Purchase Invoice": "public/js/invoice.js",
+	"Customer": "public/js/party.js",
+	"Supplier": "public/js/party.js",
 }
 
 # Installation
@@ -34,6 +37,8 @@ _invoice_events = {
 doc_events = {
 	"Sales Invoice": _invoice_events,
 	"POS Invoice": _invoice_events,
+	# Self-billed invoices: purchase invoices from suppliers with a self-billing agreement.
+	"Purchase Invoice": _invoice_events,
 }
 
 # Scheduled Tasks
@@ -43,7 +48,7 @@ scheduler_events = {
 	"cron": {
 		# Batch-mode submissions, plus retries of anything that failed to reach Flick.
 		"*/10 * * * *": ["flick_einvoicing.jobs.send_queued"],
-		# Status updates from Flick's events feed.
+		# Status updates from Flick's events feed, and invoices received over Peppol.
 		"*/5 * * * *": ["flick_einvoicing.jobs.sync_events"],
 	},
 	# Safety net for documents whose events never arrived.

@@ -9,6 +9,7 @@
   "invoice",
   "company",
   "customer",
+  "supplier",
   "column_break_head",
   "status",
   "next_action",
@@ -32,6 +33,7 @@
   "next_retry_at",
   "column_break_attempts",
   "last_event_at",
+  "files_attached",
   "validation_errors",
   "error_message",
   "payload_section",
@@ -44,7 +46,7 @@
    "fieldname": "invoice_doctype",
    "fieldtype": "Select",
    "label": "Invoice Type",
-   "options": "Sales Invoice\nPOS Invoice",
+   "options": "Sales Invoice\nPOS Invoice\nPurchase Invoice",
    "read_only": 1,
    "reqd": 1
   },
@@ -73,6 +75,14 @@
    "in_standard_filter": 1,
    "label": "Customer",
    "options": "Customer",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.supplier",
+   "fieldname": "supplier",
+   "fieldtype": "Link",
+   "label": "Supplier",
+   "options": "Supplier",
    "read_only": 1
   },
   {
@@ -112,7 +122,7 @@
    "search_index": 1
   },
   {
-   "description": "380 invoice, 381 credit note, 480 / 81 out of scope",
+   "description": "380 invoice, 381 credit note, 480 / 81 out of scope, 389 / 261 self-billed",
    "fieldname": "document_type",
    "fieldtype": "Data",
    "label": "Document Type",
@@ -233,6 +243,14 @@
    "fieldname": "last_event_at",
    "fieldtype": "Datetime",
    "label": "Last Event",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "files_attached",
+   "fieldtype": "Check",
+   "label": "Flick Files Attached",
    "no_copy": 1,
    "read_only": 1
   },

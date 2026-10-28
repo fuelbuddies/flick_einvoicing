@@ -40,6 +40,20 @@ frappe.ui.form.on("E Invoice Submission", {
 		}
 		if (doc.docstatus === 1) {
 			frm.add_custom_button(__("Refresh Status"), () => call("check_on_flick", __("Asking Flick...")));
+			const files = [
+				["pdf", __("PDF")],
+				["xml", __("UBL XML")],
+				["DOCUMENT_TDD", __("Tax Data Document (FTA)")],
+				["DOCUMENT_SBD_SIGNED", __("Signed Envelope")],
+				["DOCUMENT_MLS_RECVD", __("Buyer's Receipt (MLS)")],
+			];
+			for (const [kind, label] of files) {
+				frm.add_custom_button(
+					label,
+					() => window.open(`/api/method/flick_einvoicing.api.download?name=${encodeURIComponent(doc.name)}&kind=${kind}`),
+					__("Download")
+				);
+			}
 		}
 		const released =
 			doc.docstatus === 1 &&

@@ -42,6 +42,9 @@ def send_queued():
 	paged, so an offset would silently skip a page each round.
 	"""
 	for settings in _enabled_settings():
+		if settings.submission_mode == "Batch" and settings.get("use_bulk"):
+			_send_bulk(settings)
+			continue
 		last = None
 		while True:
 			rows = _due(settings.company, last)
@@ -61,6 +64,25 @@ def send_queued():
 					frappe.log_error(title=f"E-invoice send failed: {row.name}")
 			if rows is None:
 				break
+
+
+def _send_bulk(settings):
+	last = None
+	while True:
+		rows = _due(settings.company, last)
+		if not rows:
+			return
+		last = rows[-1]
+		try:
+			service.send_bulk([row.name for row in rows], settings)
+			_commit()
+		except service.AuthFailure:
+			_commit()
+			return
+		except Exception:
+			_rollback()
+			frappe.log_error(title=f"E-invoice bulk send failed: {settings.company}")
+			return
 
 
 def _due(company: str, after=None) -> list:
@@ -112,3 +134,28 @@ def refresh_stale():
 		except Exception:
 			_rollback()
 			frappe.log_error(title=f"E-invoice refresh failed: {name}")
+
+	# Flick's PDF and UBL for documents where attaching failed the first time.
+	for row in frappe.get_all(
+		"E Invoice Submission",
+		filters={
+			"docstatus": 1,
+			"files_attached": 0,
+			"modified": ("<", add_to_date(now_datetime(), hours=-1)),
+		},
+		fields=["name", "company"],
+		limit=200,
+	):
+		settings = (
+			frappe.get_cached_doc("E Invoicing Settings", row.company)
+			if frappe.db.exists("E Invoicing Settings", row.company)
+			else None
+		)
+		if not settings or not settings.enabled:
+			continue
+		try:
+			service.attach_files(frappe.get_doc("E Invoice Submission", row.name), settings)
+			_commit()
+		except Exception:
+			_rollback()
+			frappe.log_error(title=f"E-invoice files failed: {row.name}")

@@ -5,6 +5,7 @@ Nothing here commits; callers decide transaction boundaries (jobs commit per rec
 
 import json
 import re
+from decimal import Decimal, InvalidOperation
 
 import frappe
 from frappe.utils import add_to_date, convert_utc_to_system_timezone, get_datetime, now_datetime
@@ -13,11 +14,12 @@ from flick_einvoicing.einvoice import status as st
 from flick_einvoicing.einvoice.payload import InvoiceProblems, build_payload
 from flick_einvoicing.einvoice.scope import settings_for
 from flick_einvoicing.providers import get_client
-from flick_einvoicing.providers.flick import RETENTION_RULE
+from flick_einvoicing.providers.flick import INCOMING, OUTGOING, RETENTION_RULE
 
 DOCTYPE = "E Invoice Submission"
 BACKOFF_MINUTES = (5, 15, 60, 180, 360)
 AUTH_RETRY_MINUTES = 60
+BULK_LIMIT = 50
 
 
 class AuthFailure(Exception):
@@ -44,7 +46,8 @@ def create_submission(invoice):
 			"invoice_doctype": invoice.doctype,
 			"invoice": invoice.name,
 			"company": invoice.company,
-			"customer": invoice.customer,
+			"customer": invoice.get("customer"),
+			"supplier": invoice.get("supplier"),
 			"issue_date": invoice.posting_date,
 			"document_identifier": invoice.name,
 			"currency": invoice.currency,
@@ -71,38 +74,100 @@ def mirror(sub):
 # Sending
 
 
-def send(name: str, manual: bool = False) -> str | None:
-	"""Send one draft submission. Safe to call twice: the row lock serialises senders, and
-	?no_error makes Flick answer a number it already holds with that document."""
+def _claim(name: str, manual: bool = False):
+	"""Lock a draft for sending. The row lock serialises senders; returns None when there is
+	nothing to send."""
 	row = frappe.db.get_value(DOCTYPE, name, ["docstatus", "status"], as_dict=True, for_update=True)
 	if not row or row.docstatus != 0:
-		return row.status if row else None
+		return None
 	if row.status not in st.SENDABLE and not (manual and row.status == st.REJECTED):
-		return row.status
+		return None
+	return frappe.get_doc(DOCTYPE, name)
 
-	sub = frappe.get_doc(DOCTYPE, name)
-	settings = settings_for(sub.company)
-	if not settings or not settings.enabled:
-		return sub.status
 
+def _prepare(sub, settings) -> dict | None:
 	invoice = frappe.get_doc(sub.invoice_doctype, sub.invoice)
 	try:
 		payload = build_payload(invoice, settings)
 	except InvoiceProblems as e:
 		_save_draft(sub, st.REJECTED, validation_errors="\n".join(e.problems))
-		return sub.status
-
+		return None
 	sub.request_payload = json.dumps(payload, indent=1)
 	sub.document_type = payload.get("document_type")
 	sub.attempt_count = (sub.attempt_count or 0) + 1
 	sub.last_attempt = now_datetime()
+	return payload
+
+
+def send(name: str, manual: bool = False) -> str | None:
+	"""Send one draft submission. Safe to call twice: the row lock serialises senders, and
+	?no_error makes Flick answer a number it already holds with that document."""
+	sub = _claim(name, manual)
+	if not sub:
+		return frappe.db.get_value(DOCTYPE, name, "status")
+	settings = settings_for(sub.company)
+	if not settings or not settings.enabled:
+		return sub.status
+	payload = _prepare(sub, settings)
+	if payload is None:
+		return sub.status
 	response = get_client(settings).submit(payload, submission=sub.name)
-	return _after_submit(sub, response, settings)
+	return _after_response(sub, response.status, response.data, response, settings)
 
 
-def _after_submit(sub, response, settings) -> str:
-	code = response.status
-	data = response.data if isinstance(response.data, dict) else {}
+def send_bulk(names: list[str], settings) -> None:
+	"""Batch mode through the bulk endpoint: one request for up to 50 invoices, each still
+	filed on its own and answered on its own."""
+	subs, payloads = [], []
+	for name in names[:BULK_LIMIT]:
+		sub = _claim(name)
+		if not sub:
+			continue
+		payload = _prepare(sub, settings)
+		if payload is not None:
+			subs.append(sub)
+			payloads.append(payload)
+	if not payloads:
+		return
+
+	response = get_client(settings).submit_bulk(payloads)
+	results = (response.data or {}).get("results") if isinstance(response.data, dict) else None
+	if response.status in (401, 403):
+		for sub in subs:
+			_save_draft(
+				sub,
+				st.ERROR,
+				error_message=f"Flick refused the credential: {response.message}",
+				retry_minutes=AUTH_RETRY_MINUTES,
+			)
+		raise AuthFailure(response.message)
+	if not isinstance(results, list):
+		# No per-document answer: none of them is known to have landed or not.
+		for sub in subs:
+			_after_response(sub, response.status, None, response, settings)
+		return
+
+	by_index = {result.get("index"): result for result in results if isinstance(result, dict)}
+	for index, sub in enumerate(subs):
+		result = by_index.get(index) or {}
+		outcome = result.get("outcome")
+		if outcome == "accepted":
+			_accept(sub, result, settings, duplicate=False)
+		elif outcome == "duplicate":
+			_accept(sub, result, settings, duplicate=True)
+		elif outcome == "rejected":
+			_save_draft(
+				sub,
+				st.REJECTED,
+				validation_errors=format_issues(result.get("errors") or []) or result.get("message"),
+			)
+		else:
+			# failed, not_processed or missing: unknown, never "not filed". Resending is safe.
+			_retry_later(sub, result.get("message") or f"Bulk outcome: {outcome or 'none'}")
+
+
+def _after_response(sub, code, data, response, settings) -> str:
+	data = data if isinstance(data, dict) else {}
 
 	if code == 202 or (code == 200 and data.get("document_id")):
 		return _accept(sub, data, settings, duplicate=bool(data.get("is_duplicate")))
@@ -114,7 +179,10 @@ def _after_submit(sub, response, settings) -> str:
 
 	if code == 400:
 		_save_draft(
-			sub, st.REJECTED, validation_errors=format_issues(response), error_message=response.message
+			sub,
+			st.REJECTED,
+			validation_errors=format_issues(response.issues) or response.message,
+			error_message=response.message,
 		)
 		return sub.status
 
@@ -142,11 +210,15 @@ def _after_submit(sub, response, settings) -> str:
 
 	# No answer, an HTML error page, or a 5xx: the document may or may not have landed.
 	# Retrying is safe because the next POST adopts it if it did.
+	return _retry_later(sub, response.message)
+
+
+def _retry_later(sub, message: str) -> str:
 	attempt = max(sub.attempt_count or 1, 1)
 	_save_draft(
 		sub,
 		st.ERROR,
-		error_message=response.message,
+		error_message=message,
 		retry_minutes=BACKOFF_MINUTES[min(attempt, len(BACKOFF_MINUTES)) - 1],
 	)
 	return sub.status
@@ -187,6 +259,7 @@ def _accept(sub, data: dict, settings, duplicate: bool) -> str:
 	if duplicate or sub.status != st.PROCESSING:
 		# An adopted document may be further along; the detail read has the whole truth.
 		refresh(sub, settings)
+	attach_files(sub, settings)
 	return sub.status
 
 
@@ -218,10 +291,7 @@ def _held_by_another_document(sub, data: dict, settings) -> list[str] | None:
 		mine, held = _dig(ours, path), _dig(theirs, path)
 		if mine is None or held is None:
 			continue
-		if label == "amount due":
-			same = _decimal(mine) == _decimal(held)
-		else:
-			same = str(mine) == str(held)
+		same = _decimal(mine) == _decimal(held) if label == "amount due" else str(mine) == str(held)
 		if not same:
 			differences.append(f"{label} {held!s} there, {mine!s} here")
 	return differences
@@ -236,8 +306,6 @@ def _dig(data: dict, path: tuple):
 
 
 def _decimal(value):
-	from decimal import Decimal, InvalidOperation
-
 	try:
 		return Decimal(str(value))
 	except InvalidOperation:
@@ -264,15 +332,38 @@ def _save(sub):
 	mirror(sub)
 
 
-def format_issues(response) -> str:
+def format_issues(issues: list[dict]) -> str:
 	lines = []
-	for issue in response.issues:
+	for issue in issues:
 		message = re.sub(r"^\[[^\]]+\]-\s*", "", issue.get("message") or "")
 		path = issue.get("path")
 		where = f"{path}: " if path and path != "Document" else ""
 		code = issue.get("code")
 		lines.append(f"{where}{message}" + (f" ({code})" if code else ""))
-	return "\n".join(lines) or response.message
+	return "\n".join(lines)
+
+
+# Checking with Flick before anything is filed
+
+
+def validate_with_flick(invoice, settings) -> tuple[bool | None, list[str]]:
+	"""Run Flick's full validation on an invoice without filing it.
+
+	/validate consumes the identifier it is given, so the real number is swapped for a
+	throwaway one. Returns (True, []) when valid, (False, issues) when Flick refuses it, and
+	(None, [reason]) when Flick could not be asked.
+	"""
+	try:
+		payload = build_payload(invoice, settings)
+	except InvoiceProblems as e:
+		return False, e.problems
+	payload["document_identifier"] = f"CHECK-{frappe.generate_hash(length=12).upper()}"
+	response = get_client(settings).validate(payload)
+	if response.ok:
+		return True, []
+	if response.status == 400:
+		return False, format_issues(response.issues).splitlines() or [response.message]
+	return None, [f"Flick could not validate it ({response.status or 'no answer'}): {response.message}"]
 
 
 # Following up
@@ -302,7 +393,7 @@ def apply_detail(sub, data: dict):
 	sub.error_message = format_track_errors(errors) or None
 	sub.next_action = st.next_action(sub, origins={e.get("origin") for e in errors if e.get("origin")})
 	sub.response_payload = json.dumps({k: v for k, v in data.items() if k != "document"}, indent=1)
-	_save_submitted(sub)
+	_save(sub)
 
 
 def format_track_errors(errors: list[dict]) -> str:
@@ -310,13 +401,65 @@ def format_track_errors(errors: list[dict]) -> str:
 	for error in errors:
 		where = (error.get("type") or "").capitalize() or "Flick"
 		detail = ", ".join(x for x in (error.get("code"), error.get("origin")) if x)
-		retry = "" if error.get("retryable") is None else (" Flick will retry." if error["retryable"] else "")
+		retry = " Flick will retry." if error.get("retryable") else ""
 		lines.append(f"{where} ({detail}): {error.get('message') or ''}{retry}".strip())
 	return "\n".join(lines)
 
 
-def _save_submitted(sub):
+def attach_files(sub, settings) -> bool:
+	"""Keep Flick's rendering of the e-invoice with the ERPNext invoice: the PDF, and the UBL if
+	asked for. Never stops the flow; refresh_stale tries again later."""
+	if sub.files_attached or sub.docstatus != 1 or not sub.document_id:
+		return True
+	wanted = [
+		kind for kind, on in (("pdf", settings.get("attach_pdf")), ("xml", settings.get("attach_xml"))) if on
+	]
+	if not wanted:
+		return True
+	client = get_client(settings)
+	try:
+		for kind in wanted:
+			response = client.get_file(sub.document_id, kind, submission=sub.name)
+			if not response.ok or response.content is None:
+				return False
+			file_name = f"{sub.document_identifier} e-invoice.{kind}"
+			if not frappe.db.exists(
+				"File",
+				{
+					"attached_to_doctype": sub.invoice_doctype,
+					"attached_to_name": sub.invoice,
+					"file_name": file_name,
+				},
+			):
+				frappe.get_doc(
+					{
+						"doctype": "File",
+						"file_name": file_name,
+						"attached_to_doctype": sub.invoice_doctype,
+						"attached_to_name": sub.invoice,
+						"is_private": 1,
+						"content": response.content,
+					}
+				).insert(ignore_permissions=True)
+	except Exception:
+		frappe.log_error(title=f"E-invoice files could not be attached: {sub.name}")
+		return False
+	sub.files_attached = 1
 	_save(sub)
+	return True
+
+
+# Status events, from the feed or from a webhook
+
+# Webhook event types, mapped onto the feed's vocabulary: (feed type, which track it moves).
+WEBHOOK_EVENTS = {
+	"document.completed": ("document.completed", None),
+	"document.failed": ("document.failed", None),
+	"document.reporting.reported": ("reporting.status_changed", ("reporting", "reported")),
+	"document.reporting.failed": ("reporting.status_changed", ("reporting", "failed")),
+	"document.exchange.delivered": ("exchange.status_changed", ("exchange", "delivered")),
+	"document.exchange.failed": ("exchange.status_changed", ("exchange", "failed")),
+}
 
 
 def apply_event(event: dict, settings) -> bool:
@@ -362,8 +505,34 @@ def apply_event(event: dict, settings) -> bool:
 			sub.status = st.FAILED
 
 	sub.next_action = st.next_action(sub)
-	_save_submitted(sub)
+	_save(sub)
 	return True
+
+
+def apply_webhook(payload: dict, settings) -> bool:
+	"""A webhook delivery, at least once and in no particular order: the same rules as the
+	feed apply, keyed on the document and its own timestamp."""
+	data = payload.get("data") or {}
+	kind = payload.get("event")
+	if kind == "document.received":
+		from flick_einvoicing.einvoice import inbound
+
+		inbound.receive(data.get("document_id"), settings)
+		return True
+	if kind not in WEBHOOK_EVENTS:
+		return False
+	feed_type, track = WEBHOOK_EVENTS[kind]
+	event = {
+		"type": feed_type,
+		"document_id": data.get("document_id"),
+		"occurred_at": payload.get("timestamp"),
+		"reporting": data.get("reporting_status"),
+		"exchange": data.get("exchange_status"),
+	}
+	if track:
+		event[track[0]] = track[1]
+		event["exchange" if track[0] == "reporting" else "reporting"] = None
+	return apply_event(event, settings)
 
 
 def _system_time(value: str | None):
@@ -374,13 +543,29 @@ def _system_time(value: str | None):
 
 
 def sync_events(settings, max_pages: int = 20) -> int:
-	"""Read the outgoing feed forward from our cursor. Returns the number of events seen."""
+	"""Read the outgoing feed, and the incoming one when receiving invoices, forward from our
+	cursors. Returns the number of events seen."""
+	seen = _sync_feed(
+		settings, OUTGOING, "event_cursor", lambda event: apply_event(event, settings), max_pages
+	)
+	if settings.get("receive_invoices"):
+		from flick_einvoicing.einvoice import inbound
+
+		def on_incoming(event):
+			if event.get("type") == "document.received":
+				inbound.receive(event.get("document_id"), settings)
+
+		seen += _sync_feed(settings, INCOMING, "incoming_cursor", on_incoming, max_pages)
+	return seen
+
+
+def _sync_feed(settings, direction: str, cursor_field: str, handle, max_pages: int) -> int:
 	client = get_client(settings)
-	cursor = settings.event_cursor or None
+	cursor = settings.get(cursor_field) or None
 	seen = 0
 	reset = False
 	for _page in range(max_pages):
-		response = client.events(cursor=cursor)
+		response = client.events(cursor=cursor, direction=direction)
 		if response.status == 400 and cursor and not reset:
 			cursor, reset = None, True  # a cursor from another environment; start from Flick's position
 			continue
@@ -389,7 +574,7 @@ def sync_events(settings, max_pages: int = 20) -> int:
 
 		events = response.data.get("events") or []
 		for event in events:
-			apply_event(event, settings)
+			handle(event)
 		seen += len(events)
 
 		pagination = response.data.get("pagination") or {}
@@ -397,12 +582,12 @@ def sync_events(settings, max_pages: int = 20) -> int:
 		frappe.db.set_value(
 			"E Invoicing Settings",
 			settings.name,
-			{"event_cursor": next_cursor, "events_synced_at": now_datetime()},
+			{cursor_field: next_cursor, "events_synced_at": now_datetime()},
 			update_modified=False,
 		)
 		if events and next_cursor and settings.ack_events:
-			# Acknowledge only after our side is saved; callers commit before the next page.
-			client.ack(next_cursor)
+			# Acknowledge only after our side is saved; callers commit before the next run.
+			client.ack(next_cursor, direction=direction)
 		cursor = next_cursor
 		if not pagination.get("has_more"):
 			break
@@ -460,7 +645,7 @@ def resubmit(sub) -> str:
 	copy = frappe.copy_doc(sub)
 	copy.docstatus = 0  # copy_doc keeps the source's docstatus, here cancelled
 	copy.amended_from = sub.name
-	for field in (
+	for fieldname in (
 		"document_id",
 		"reporting_status",
 		"exchange_status",
@@ -472,8 +657,8 @@ def resubmit(sub) -> str:
 		"last_event_at",
 		"next_retry_at",
 	):
-		copy.set(field, None)
-	copy.reporting_settled = copy.exchange_settled = 0
+		copy.set(fieldname, None)
+	copy.reporting_settled = copy.exchange_settled = copy.files_attached = 0
 	copy.attempt_count = 0
 	copy.status = st.QUEUED
 	copy.next_action = st.next_action(copy)

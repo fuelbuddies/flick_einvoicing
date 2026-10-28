@@ -9,17 +9,18 @@
   "template",
   "tax_category",
   "exemption_reason_code",
-  "exemption_reason_text"
+  "exemption_reason_text",
+  "reverse_charge_item_type"
  ],
  "fields": [
   {
-   "columns": 3,
+   "columns": 2,
    "default": "Sales Taxes and Charges Template",
    "fieldname": "template_type",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Template Type",
-   "options": "Sales Taxes and Charges Template\nItem Tax Template",
+   "options": "Sales Taxes and Charges Template\nPurchase Taxes and Charges Template\nItem Tax Template",
    "reqd": 1
   },
   {
@@ -33,11 +34,12 @@
   },
   {
    "columns": 2,
+   "description": "N (profit margin scheme) is rejected by Flick in every combination today.",
    "fieldname": "tax_category",
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Tax Category",
-   "options": "\nS - Standard rated (5%)\nZ - Zero rated\nE - Exempt\nO - Outside scope of tax\nAE - Reverse charge",
+   "options": "\nS - Standard rated (5%)\nZ - Zero rated\nE - Exempt\nO - Outside scope of tax\nAE - Reverse charge\nN - Profit margin scheme",
    "reqd": 1
   },
   {
@@ -54,6 +56,16 @@
    "fieldname": "exemption_reason_text",
    "fieldtype": "Data",
    "label": "Exemption Reason Text"
+  },
+  {
+   "columns": 1,
+   "depends_on": "eval:(doc.tax_category || '').startsWith('AE ')",
+   "description": "Reverse-charge lines also need a GTIN barcode on the item and the buyer's TRN.",
+   "fieldname": "reverse_charge_item_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Reverse-Charge Goods",
+   "options": "\nDL8.48.8.1 - Gold and diamonds\nDL8.48.8.2 - Electronic devices\nDL8.48.3.1 - Crude or refined oil\nDL8.48.3.2 - Natural gas\nDL8.48.3.3 - Pure hydrocarbons"
   }
  ],
  "index_web_pages_for_search": 0,

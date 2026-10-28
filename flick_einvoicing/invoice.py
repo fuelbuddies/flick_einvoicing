@@ -1,4 +1,4 @@
-"""Sales Invoice / POS Invoice hooks."""
+"""Sales Invoice, POS Invoice and (self-billed) Purchase Invoice hooks."""
 
 import frappe
 from frappe import _
@@ -6,7 +6,12 @@ from frappe import _
 from flick_einvoicing.einvoice import status as st
 from flick_einvoicing.einvoice.payload import invoice_problems
 from flick_einvoicing.einvoice.scope import settings_for, skip_reason
-from flick_einvoicing.einvoice.service import DOCTYPE, active_submission, create_submission
+from flick_einvoicing.einvoice.service import (
+	DOCTYPE,
+	active_submission,
+	create_submission,
+	validate_with_flick,
+)
 
 
 def before_submit(doc, method=None):
@@ -18,6 +23,13 @@ def before_submit(doc, method=None):
 	if skip_reason(doc, settings):
 		return
 	problems = invoice_problems(doc, settings)
+	if not problems and settings.get("validate_before_submit"):
+		valid, issues = validate_with_flick(doc, settings)
+		if valid is None:
+			# Flick couldn't be asked: don't hold up the business, the send will tell.
+			frappe.msgprint(issues[0], title=_("Not checked with Flick"), indicator="orange")
+		elif not valid:
+			problems = issues
 	if problems:
 		items = "".join(f"<li>{frappe.utils.escape_html(p)}</li>" for p in problems)
 		frappe.throw(

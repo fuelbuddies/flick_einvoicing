@@ -32,6 +32,17 @@ class EInvoicingSettings(Document):
 		if self.enabled:
 			self.validate_ready()
 
+		rounding = frappe.db.get_single_value("System Settings", "rounding_method") or ""
+		if self.enabled and rounding.startswith("Banker"):
+			frappe.msgprint(
+				_(
+					"ERPNext rounds half a fil to even here, while Flick rounds it up. On an exact half fil "
+					"the e-invoice's VAT is then one fil above the books. Commercial Rounding in System "
+					"Settings keeps the two identical."
+				),
+				indicator="orange",
+			)
+
 		if self.environment == "Production" and "preprod" in self.base_url:
 			frappe.msgprint(
 				_("Environment is Production but the Base URL looks like pre-production."), indicator="orange"
@@ -53,17 +64,45 @@ class EInvoicingSettings(Document):
 					)
 				)
 
-			if codes.code_of(row.tax_category) == "E":
+			category = codes.code_of(row.tax_category)
+			if category == "E":
 				if not row.exemption_reason_code:
 					frappe.throw(_("Row {0}: exempt supplies need an exemption reason.").format(row.idx))
 			else:
 				row.exemption_reason_code = None
 				row.exemption_reason_text = None
+			if category == "AE":
+				if not row.reverse_charge_item_type:
+					frappe.throw(
+						_("Row {0}: reverse charge needs the goods type it applies to.").format(row.idx)
+					)
+			else:
+				row.reverse_charge_item_type = None
+			if category == codes.MARGIN:
+				frappe.msgprint(
+					_("Row {0}: Flick currently rejects every profit-margin-scheme document.").format(
+						row.idx
+					),
+					indicator="orange",
+				)
+
+		for row in self.get("charge_accounts") or []:
+			company = frappe.db.get_value("Account", row.account, "company")
+			if company and company != self.company:
+				frappe.throw(_("Charge row {0}: {1} belongs to {2}.").format(row.idx, row.account, company))
+		modes = [row.mode_of_payment for row in self.get("payment_modes") or []]
+		if len(modes) != len(set(modes)):
+			frappe.throw(_("Each Mode of Payment can be mapped once."))
 
 	def validate_ready(self):
+		oauth = self.auth_method == "OAuth Client"
 		required = {
 			"base_url": _("Base URL"),
-			"api_key": _("API Key"),
+			**(
+				{"client_id": _("Client ID"), "client_secret": _("Client Secret")}
+				if oauth
+				else {"api_key": _("API Key")}
+			),
 			"participant_id": _("Participant ID"),
 			"start_date": _("Start Date"),
 			"payment_means_code": _("Payment Means"),
@@ -79,3 +118,7 @@ class EInvoicingSettings(Document):
 			frappe.throw(_("Credit transfer needs the IBAN the buyer pays into."))
 		if not self.tax_treatments:
 			frappe.throw(_("Map at least one tax template before enabling e-invoicing."))
+		if self.status_updates == "Webhook" and not self.webhook_subscription_id:
+			frappe.throw(
+				_("Register the webhook with Flick first, or read status updates from the events feed.")
+			)

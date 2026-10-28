@@ -13,29 +13,71 @@
   "connection_section",
   "base_url",
   "participant_id",
+  "auth_method",
   "column_break_connection",
   "api_key",
+  "client_id",
+  "client_secret",
   "submission_section",
   "submission_mode",
+  "use_bulk",
   "start_date",
+  "validate_before_submit",
   "column_break_submission",
   "skip_b2c",
   "skip_internal_customers",
+  "content_section",
+  "discount_style",
+  "export_emirate",
+  "column_break_content",
+  "attach_pdf",
+  "attach_xml",
   "payment_section",
   "payment_means_code",
   "payment_account_id",
   "column_break_payment",
   "payment_account_name",
   "payment_service_provider_id",
+  "payment_modes",
   "codes_section",
   "uom_code_list",
   "tax_section",
   "tax_treatments",
+  "charges_section",
+  "charge_accounts",
+  "seller_section",
+  "seller_trade_name",
+  "seller_contact_name",
+  "column_break_seller",
+  "seller_contact_phone",
+  "seller_contact_email",
+  "payee_section",
+  "payee_name",
+  "payee_identifier",
+  "payee_identifier_scheme",
+  "column_break_payee",
+  "payee_legal_registration_id",
+  "payee_bank_creditor_id",
+  "tax_rep_section",
+  "tax_rep_name",
+  "tax_rep_vat_number",
+  "column_break_tax_rep",
+  "tax_rep_address",
   "events_section",
+  "status_updates",
   "ack_events",
+  "webhook_subscription_id",
+  "webhook_secret",
   "column_break_events",
   "event_cursor",
-  "events_synced_at"
+  "events_synced_at",
+  "incoming_cursor",
+  "inbound_section",
+  "receive_invoices",
+  "auto_create_purchase_invoice",
+  "column_break_inbound",
+  "purchase_item",
+  "purchase_taxes_template"
  ],
  "fields": [
   {
@@ -87,20 +129,41 @@
    "label": "Base URL"
   },
   {
-   "description": "The Flick participant this company files as. Test Connection lists the ones your key covers.",
+   "description": "The Flick participant this company files as. Test Connection lists the ones your credential covers.",
    "fieldname": "participant_id",
    "fieldtype": "Data",
    "label": "Participant ID"
+  },
+  {
+   "default": "API Key",
+   "fieldname": "auth_method",
+   "fieldtype": "Select",
+   "label": "Credential",
+   "options": "API Key\nOAuth Client"
   },
   {
    "fieldname": "column_break_connection",
    "fieldtype": "Column Break"
   },
   {
+   "depends_on": "eval:doc.auth_method != 'OAuth Client'",
    "description": "Static key starting flick_ae_. Stored encrypted; never logged.",
    "fieldname": "api_key",
    "fieldtype": "Password",
    "label": "API Key"
+  },
+  {
+   "depends_on": "eval:doc.auth_method == 'OAuth Client'",
+   "fieldname": "client_id",
+   "fieldtype": "Data",
+   "label": "Client ID"
+  },
+  {
+   "depends_on": "eval:doc.auth_method == 'OAuth Client'",
+   "description": "Exchanged for a one-hour token, renewed as needed.",
+   "fieldname": "client_secret",
+   "fieldtype": "Password",
+   "label": "Client Secret"
   },
   {
    "fieldname": "submission_section",
@@ -116,10 +179,25 @@
    "options": "Live\nBatch"
   },
   {
+   "default": "0",
+   "depends_on": "eval:doc.submission_mode == 'Batch'",
+   "description": "Up to 50 invoices per request through Flick's bulk endpoint.",
+   "fieldname": "use_bulk",
+   "fieldtype": "Check",
+   "label": "Send Batches in Bulk"
+  },
+  {
    "description": "Invoices posted before this date are never e-invoiced.",
    "fieldname": "start_date",
    "fieldtype": "Date",
    "label": "Start Date"
+  },
+  {
+   "default": "0",
+   "description": "Runs Flick's full validation under a throwaway number while the invoice is submitted. If Flick can't be reached the submit goes ahead.",
+   "fieldname": "validate_before_submit",
+   "fieldtype": "Check",
+   "label": "Validate with Flick before Submit"
   },
   {
    "fieldname": "column_break_submission",
@@ -140,6 +218,42 @@
    "label": "Skip Internal Customers"
   },
   {
+   "fieldname": "content_section",
+   "fieldtype": "Section Break",
+   "label": "Invoice Content"
+  },
+  {
+   "default": "Document-level allowance",
+   "description": "An allowance shows the discount on the e-invoice. Invoices with tax-inclusive prices always spread it over the lines.",
+   "fieldname": "discount_style",
+   "fieldtype": "Select",
+   "label": "Invoice Discount",
+   "options": "Document-level allowance\nSpread over lines"
+  },
+  {
+   "description": "Flick requires an emirate even on an address abroad (ibr-152-ae): use the emirate the goods leave from.",
+   "fieldname": "export_emirate",
+   "fieldtype": "Select",
+   "label": "Emirate for Foreign Addresses",
+   "options": "\nAbu Dhabi\nDubai\nSharjah\nAjman\nUmm Al Quwain\nRas Al Khaimah\nFujairah"
+  },
+  {
+   "fieldname": "column_break_content",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "attach_pdf",
+   "fieldtype": "Check",
+   "label": "Attach Flick's PDF to the Invoice"
+  },
+  {
+   "default": "0",
+   "fieldname": "attach_xml",
+   "fieldtype": "Check",
+   "label": "Attach the UBL XML to the Invoice"
+  },
+  {
    "description": "Every invoice carries how it is paid (PINT-AE ibr-191-ae).",
    "fieldname": "payment_section",
    "fieldtype": "Section Break",
@@ -148,7 +262,7 @@
   {
    "fieldname": "payment_means_code",
    "fieldtype": "Select",
-   "label": "Payment Means",
+   "label": "Default Payment Means",
    "options": "\n1 - Instrument not defined\n10 - Cash\n20 - Cheque\n21 - Banker's draft\n30 - Credit transfer\n49 - Direct debit\n54 - Credit card\n55 - Debit card\n68 - Online payment service"
   },
   {
@@ -170,6 +284,13 @@
    "fieldname": "payment_service_provider_id",
    "fieldtype": "Data",
    "label": "Bank BIC"
+  },
+  {
+   "description": "For invoices paid at the counter: each payment row's mode decides the payment means.",
+   "fieldname": "payment_modes",
+   "fieldtype": "Table",
+   "label": "Payment Means by Mode of Payment",
+   "options": "E Invoicing Payment Mode"
   },
   {
    "fieldname": "codes_section",
@@ -198,9 +319,125 @@
   },
   {
    "collapsible": 1,
+   "description": "Rows charged 'Actual' in the taxes table (freight, for instance) are sent as charges. Map each account to its UNCL 7161 reason code and VAT category.",
+   "fieldname": "charges_section",
+   "fieldtype": "Section Break",
+   "label": "Document-Level Charges"
+  },
+  {
+   "fieldname": "charge_accounts",
+   "fieldtype": "Table",
+   "label": "Charge Accounts",
+   "options": "E Invoicing Charge Account"
+  },
+  {
+   "collapsible": 1,
+   "description": "Flick fills the seller from the onboarded profile; anything set here overrides it.",
+   "fieldname": "seller_section",
+   "fieldtype": "Section Break",
+   "label": "Seller Details"
+  },
+  {
+   "fieldname": "seller_trade_name",
+   "fieldtype": "Data",
+   "label": "Trading Name"
+  },
+  {
+   "fieldname": "seller_contact_name",
+   "fieldtype": "Data",
+   "label": "Contact Name"
+  },
+  {
+   "fieldname": "column_break_seller",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "seller_contact_phone",
+   "fieldtype": "Data",
+   "label": "Contact Phone"
+  },
+  {
+   "fieldname": "seller_contact_email",
+   "fieldtype": "Data",
+   "label": "Contact Email",
+   "options": "Email"
+  },
+  {
+   "collapsible": 1,
+   "description": "Only when payment goes to someone other than the seller, a factor for instance.",
+   "fieldname": "payee_section",
+   "fieldtype": "Section Break",
+   "label": "Payee"
+  },
+  {
+   "fieldname": "payee_name",
+   "fieldtype": "Data",
+   "label": "Payee Name"
+  },
+  {
+   "fieldname": "payee_identifier",
+   "fieldtype": "Data",
+   "label": "Payee Identifier"
+  },
+  {
+   "fieldname": "payee_identifier_scheme",
+   "fieldtype": "Data",
+   "label": "Identifier Scheme"
+  },
+  {
+   "fieldname": "column_break_payee",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "payee_legal_registration_id",
+   "fieldtype": "Data",
+   "label": "Payee Legal Registration ID"
+  },
+  {
+   "fieldname": "payee_bank_creditor_id",
+   "fieldtype": "Data",
+   "label": "Payee Creditor ID"
+  },
+  {
+   "collapsible": 1,
+   "description": "Only when a tax representative acts for the seller.",
+   "fieldname": "tax_rep_section",
+   "fieldtype": "Section Break",
+   "label": "Tax Representative"
+  },
+  {
+   "fieldname": "tax_rep_name",
+   "fieldtype": "Data",
+   "label": "Representative Name"
+  },
+  {
+   "fieldname": "tax_rep_vat_number",
+   "fieldtype": "Data",
+   "label": "Representative TRN"
+  },
+  {
+   "fieldname": "column_break_tax_rep",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "tax_rep_address",
+   "fieldtype": "Link",
+   "label": "Representative Address",
+   "options": "Address"
+  },
+  {
+   "collapsible": 1,
    "fieldname": "events_section",
    "fieldtype": "Section Break",
-   "label": "Events Feed"
+   "label": "Status Updates"
+  },
+  {
+   "default": "Events Feed",
+   "description": "The feed is read every five minutes. A webhook needs this site reachable over HTTPS; the feed still runs as a safety net.",
+   "fieldname": "status_updates",
+   "fieldtype": "Select",
+   "label": "Status Updates From",
+   "options": "Events Feed\nWebhook"
   },
   {
    "default": "1",
@@ -208,6 +445,20 @@
    "fieldname": "ack_events",
    "fieldtype": "Check",
    "label": "Acknowledge Events"
+  },
+  {
+   "fieldname": "webhook_subscription_id",
+   "fieldtype": "Data",
+   "label": "Webhook Subscription",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.webhook_subscription_id",
+   "fieldname": "webhook_secret",
+   "fieldtype": "Password",
+   "label": "Webhook Signing Secret",
+   "no_copy": 1
   },
   {
    "fieldname": "column_break_events",
@@ -226,6 +477,51 @@
    "label": "Events Synced At",
    "no_copy": 1,
    "read_only": 1
+  },
+  {
+   "fieldname": "incoming_cursor",
+   "fieldtype": "Data",
+   "label": "Incoming Cursor",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "description": "Invoices suppliers send this participant over Peppol arrive as E Invoice Received records.",
+   "fieldname": "inbound_section",
+   "fieldtype": "Section Break",
+   "label": "Receiving Invoices"
+  },
+  {
+   "default": "0",
+   "fieldname": "receive_invoices",
+   "fieldtype": "Check",
+   "label": "Receive Invoices"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.receive_invoices",
+   "fieldname": "auto_create_purchase_invoice",
+   "fieldtype": "Check",
+   "label": "Create Draft Purchase Invoices"
+  },
+  {
+   "fieldname": "column_break_inbound",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.receive_invoices",
+   "fieldname": "purchase_item",
+   "fieldtype": "Link",
+   "label": "Item for Unmatched Lines",
+   "options": "Item"
+  },
+  {
+   "depends_on": "eval:doc.receive_invoices",
+   "fieldname": "purchase_taxes_template",
+   "fieldtype": "Link",
+   "label": "Purchase Taxes for Standard-Rated Lines",
+   "options": "Purchase Taxes and Charges Template"
   }
  ],
  "index_web_pages_for_search": 0,
