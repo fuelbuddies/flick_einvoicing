@@ -7,7 +7,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
-from flick_einvoicing.einvoice import codes
+from flick_einvoicing.einvoice import code_lists, codes
 
 UUID_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
 
@@ -29,6 +29,7 @@ class EInvoicingSettings(Document):
 			)
 
 		self.validate_tax_treatments()
+		self.validate_charge_reasons()
 		if self.enabled:
 			self.validate_ready()
 
@@ -93,6 +94,25 @@ class EInvoicingSettings(Document):
 		modes = [row.mode_of_payment for row in self.get("payment_modes") or []]
 		if len(modes) != len(set(modes)):
 			frappe.throw(_("Each Mode of Payment can be mapped once."))
+
+	def validate_charge_reasons(self):
+		"""Charge reasons come from PINT-AE's UNCL 7161 list. A value pasted as "FC - Freight
+		service" is saved as FC."""
+		reasons = code_lists.codes(code_lists.CHARGE_REASONS)
+		rows = [(self, "negative_discount_reason_code", _("Reason Code for Negative Discounts"))]
+		rows += [
+			(row, "reason_code", _("Charge row {0}: reason code").format(row.idx))
+			for row in self.get("charge_accounts") or []
+		]
+		for doc, field, label in rows:
+			code = codes.code_of((doc.get(field) or "").strip())
+			doc.set(field, code)
+			if code and code not in reasons:
+				frappe.throw(
+					_(
+						"{0} {1} is not in PINT-AE's UNCL 7161 list of charge reasons. Pick one from the list."
+					).format(label, code)
+				)
 
 	def validate_ready(self):
 		oauth = self.auth_method == "OAuth Client"

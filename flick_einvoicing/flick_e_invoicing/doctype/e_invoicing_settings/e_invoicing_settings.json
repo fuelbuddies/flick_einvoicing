@@ -234,14 +234,14 @@
   },
   {
    "depends_on": "eval:doc.discount_style != 'Spread over lines'",
-   "description": "A negative invoice discount raises the total (to round it up, for instance), and the e-invoice states it as a charge. Charges carry a UNCL 7161 reason code: agree which one with the client. There is no default.",
+   "description": "A negative invoice discount raises the total (to round it up, for instance), and the e-invoice states it as a charge. Charges carry a reason code from PINT-AE's UNCL 7161 list: agree which one with the client. There is no default.",
    "fieldname": "negative_discount_reason_code",
-   "fieldtype": "Data",
+   "fieldtype": "Autocomplete",
    "label": "Reason Code for Negative Discounts"
   },
   {
    "depends_on": "eval:doc.discount_style != 'Spread over lines'",
-   "description": "Optional wording sent with that code.",
+   "description": "Optional wording sent with that code; leave it empty to send the code alone.",
    "fieldname": "negative_discount_reason",
    "fieldtype": "Data",
    "label": "Reason for Negative Discounts"
@@ -335,7 +335,7 @@
   },
   {
    "collapsible": 1,
-   "description": "Rows charged 'Actual' in the taxes table (freight, for instance) are sent as charges. Map each account to its UNCL 7161 reason code and VAT category.",
+   "description": "Rows charged 'Actual' in the taxes table (freight, for instance) are sent as charges. Map each account to its reason code from PINT-AE's UNCL 7161 list, and its VAT category.",
    "fieldname": "charges_section",
    "fieldtype": "Section Break",
    "label": "Document-Level Charges"
@@ -542,7 +542,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-10-29 09:00:00.000000",
+ "modified": "2026-10-29 14:00:00.000000",
  "modified_by": "Administrator",
  "module": "Flick E-Invoicing",
  "name": "E Invoicing Settings",

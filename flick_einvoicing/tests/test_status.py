@@ -137,3 +137,14 @@ class TestParseTime(TestCase):
 
 	def test_empty(self):
 		self.assertIsNone(st.parse_time(None))
+
+
+class TestTrackStage(TestCase):
+	def test_stages_for_the_dashboard(self):
+		self.assertEqual(st.track_stage("reported", 1), "done")
+		self.assertEqual(st.track_stage("received", 1), "done")
+		self.assertEqual(st.track_stage("not_required", 1), "not_required")
+		self.assertEqual(st.track_stage("processing", 0), "in_progress")
+		self.assertEqual(st.track_stage(None, 0), "in_progress")
+		self.assertEqual(st.track_stage("failed", 0), "retrying", "Flick has not settled it yet")
+		self.assertEqual(st.track_stage("failed", 1), "failed")

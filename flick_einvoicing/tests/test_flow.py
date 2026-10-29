@@ -8,11 +8,12 @@ from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_sales_retu
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, today
 
-from flick_einvoicing.api import einvoicing_enabled
-from flick_einvoicing.einvoice import inbound, service, unit_codes
+from flick_einvoicing.api import charge_reasons, dashboard, einvoicing_enabled, invoice_banner
+from flick_einvoicing.einvoice import code_lists, inbound, service, setup
 from flick_einvoicing.einvoice import status as st
 from flick_einvoicing.einvoice.payload import build_payload, check_keys, invoice_problems
 from flick_einvoicing.einvoice.scope import settings_for
+from flick_einvoicing.install import DASHBOARD_BLOCK, DASHBOARD_ROLES, ensure_dashboard
 from flick_einvoicing.providers.flick import FlickClient
 from flick_einvoicing.tests.utils import (
 	BUYER_PEPPOL,
@@ -288,7 +289,7 @@ class TestDocuments(FlowTestCase):
 		self.assertTrue(any("referencing the original" in p for p in self.problems(dn)))
 
 	def test_unit_codes_are_the_specifications(self):
-		official = unit_codes.official()
+		official = code_lists.codes(code_lists.UNITS)
 		self.assertGreater(len(official), 2000)
 		self.assertEqual(official["H87"][0], "piece")
 		self.assertIn("XBX", official)  # package codes, from Recommendation 21
@@ -296,6 +297,33 @@ class TestDocuments(FlowTestCase):
 			"Common Code", filters={"code_list": "UN/ECE Recommendation 20"}, pluck="common_code"
 		)
 		self.assertFalse(set(official) - set(loaded), "install and migrate load every code")
+
+	def test_charge_reasons_are_the_specifications(self):
+		reasons = code_lists.codes(code_lists.CHARGE_REASONS)
+		self.assertGreater(len(reasons), 100)
+		self.assertEqual(reasons["FC"][0], "Freight service")
+		offered = {row["value"]: row["label"] for row in charge_reasons()}
+		self.assertEqual(offered["FC"], "FC - Freight service")
+
+	def test_settings_refuse_a_charge_reason_outside_the_list(self):
+		settings = frappe.get_doc("E Invoicing Settings", self.fx.company.name)
+		settings.negative_discount_reason_code = "FC - Freight service"
+		settings.validate_charge_reasons()
+		self.assertEqual(settings.negative_discount_reason_code, "FC")
+		settings.charge_accounts[0].reason_code = "QQQ"
+		with self.assertRaises(frappe.ValidationError) as caught:
+			settings.validate_charge_reasons()
+		self.assertIn("Charge row 1: reason code QQQ", str(caught.exception))
+
+	def test_charge_reason_dropped_from_the_list_is_refused(self):
+		# Saved before a refresh of the list dropped it: settings keep it, the invoice check refuses it.
+		self.settings(negative_discount_reason_code="QQQ")
+		try:
+			si = make_invoice(self.fx, [(3, 40, None)], discount=-20)
+			problems = self.problems(si)
+		finally:
+			self.settings(negative_discount_reason_code=None)
+		self.assertTrue(any("is QQQ, which is not a charge reason code" in p for p in problems))
 
 	def test_unit_code_outside_the_specification_is_refused(self):
 		si = make_invoice(self.fx, [(1, 100, None)])
@@ -641,6 +669,17 @@ class TestReferencesAndPayment(FlowTestCase):
 		rep = payload["tax_representative"]
 		self.assertEqual(
 			(rep["name"], rep["vat_number"], rep["emirates_code"]), ("Rep LLC", "100000123400003", "RAK")
+		)
+
+	def test_sales_order_goes_only_beside_the_purchase_order(self):
+		# Flick's schema check refuses a sales order reference without the buyer's PO number.
+		si = make_invoice(self.fx, [(1, 100, None)])
+		si.items[0].sales_order = "SAL-ORD-TEST-1"  # in memory only: no such order exists
+		self.assertFalse(self.payload(si).get("order_reference"))
+		si.po_no = "PO-77"
+		self.assertEqual(
+			self.payload(si)["order_reference"],
+			{"purchase_order_id": "PO-77", "sales_order_id": "SAL-ORD-TEST-1"},
 		)
 
 
@@ -1208,3 +1247,98 @@ class TestReceiving(FlowTestCase):
 		self.assertIn("no item matched", frappe.db.get_value("E Invoice Received", name, "notes"))
 		self.assertEqual(pi.einvoice_received, name)
 		self.assertIsNone(service.active_submission("Purchase Invoice", pi.name))
+
+
+class TestGuidance(FlowTestCase):
+	"""The setup checklist, the banner on invoices and the Flick workspace's figures."""
+
+	def test_setup_overview_follows_the_settings(self):
+		[row] = setup.overview(self.fx.company.name)
+		self.assertTrue(row["record"] and row["enabled"])
+		unmapped = setup.unmapped_templates(self.fx.company.name, self.settings())
+		for step in row["steps"]:
+			expected = not unmapped if step["label"].startswith("Map every VAT template") else True
+			self.assertEqual(step["done"], expected, step["label"])
+
+	def test_unmapped_template_is_a_setup_step(self):
+		template = frappe.get_doc(
+			{
+				"doctype": "Item Tax Template",
+				"title": "_Test EInv Setup Unmapped",
+				"company": self.fx.company.name,
+				"taxes": [{"tax_type": self.fx.vat, "tax_rate": 0}],
+			}
+		).insert()
+		self.assertIn(template.name, setup.unmapped_templates(self.fx.company.name, self.settings()))
+		[row] = setup.overview(self.fx.company.name)
+		step = next(step for step in row["steps"] if step["label"].startswith("Map every VAT template"))
+		self.assertFalse(step["done"])
+		self.assertTrue(step["detail"].startswith("Not mapped yet:"))
+
+	def test_company_without_a_record_has_every_step_left(self):
+		steps = setup.steps(self.fx.company.name, None)
+		self.assertTrue(steps[0]["label"].startswith("Create this company's E Invoicing Settings record"))
+		self.assertFalse(any(step["done"] for step in steps))
+
+	def test_banner_on_a_draft_lists_what_is_missing(self):
+		si = make_invoice(
+			self.fx, [(1, 100, None)], customer=self.fx.no_peppol, address=self.fx.no_peppol_address
+		)
+		banner = invoice_banner("Sales Invoice", si.name)
+		self.assertEqual(banner["color"], "orange")
+		self.assertTrue(any("has no Peppol ID" in line for line in banner["lines"]))
+
+	def test_banner_on_a_draft_ready_to_send(self):
+		si = make_invoice(self.fx, [(1, 100, None)])
+		banner = invoice_banner("Sales Invoice", si.name)
+		self.assertEqual(banner["color"], "green")
+		self.assertIn("queued when you submit it", banner["title"])  # the fixture sends in batches
+
+	def test_banner_on_a_skipped_invoice_says_why(self):
+		si = make_invoice(
+			self.fx, [(1, 100, None)], customer=self.fx.walk_in, address=self.fx.walk_in_address
+		)
+		banner = invoice_banner("Sales Invoice", si.name)
+		self.assertEqual(banner["color"], "blue")
+		self.assertIn("B2C", banner["title"])
+
+	def test_banner_after_submitting_follows_the_submission(self):
+		si, sub = self.submitted_invoice()
+		banner = invoice_banner("Sales Invoice", si.name)
+		self.assertEqual((banner["color"], banner["title"]), ("blue", "E-invoice queued"))
+		self.assertEqual(banner["action"]["route"], ["Form", "E Invoice Submission", sub.name])
+		self.assertEqual(banner["lines"], ["Waiting to be sent to Flick."])
+
+	def test_dashboard_counts_submissions_and_tracks(self):
+		company = self.fx.company.name
+		before = dashboard(days=30, company=company)
+		si, sub = self.submitted_invoice()
+		frappe.db.set_value(
+			"E Invoice Submission",
+			sub.name,
+			{
+				"status": "Failed",
+				"reporting_status": "failed",
+				"reporting_settled": 0,
+				"exchange_status": "delivered",
+			},
+		)
+		after = dashboard(days=30, company=company)
+		self.assertEqual(after["statuses"].get("Failed", 0), before["statuses"].get("Failed", 0) + 1)
+		self.assertEqual(
+			after["tracks"]["reporting"]["retrying"], before["tracks"]["reporting"]["retrying"] + 1
+		)
+		self.assertEqual(after["tracks"]["delivery"]["done"], before["tracks"]["delivery"]["done"] + 1)
+		self.assertIn(sub.name, [row.name for row in after["attention"]["rows"]])
+		[row] = [row for row in after["companies"] if row["company"] == company]
+		self.assertTrue(row["enabled"])
+
+	def test_dashboard_block_and_workspace_are_installed(self):
+		ensure_dashboard()
+		block = frappe.get_doc("Custom HTML Block", DASHBOARD_BLOCK)
+		self.assertIn("flick_einvoicing.api.dashboard", block.script)
+		self.assertEqual({row.role for row in block.roles}, set(DASHBOARD_ROLES))
+		self.assertFalse(block.private)
+		workspace = frappe.get_doc("Workspace", "Flick")
+		self.assertEqual([row.custom_block_name for row in workspace.custom_blocks], [DASHBOARD_BLOCK])
+		self.assertFalse(frappe.db.exists("Workspace", "E-Invoicing"))

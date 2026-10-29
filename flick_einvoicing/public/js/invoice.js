@@ -31,6 +31,31 @@ if (!flick_einvoicing.invoice_form_registered) {
 		});
 	};
 
+	// What e-invoicing will do with the invoice, or did, and what it still lacks: drafts as last
+	// saved, checked by this app only (Check with Flick asks Flick too).
+	const show_banner = (frm) => {
+		const $messages = $(frm.layout.message);
+		$messages.find(".flick-banner").remove();
+		if (frm.is_new()) return;
+		const { doctype, docname } = frm;
+		frappe.xcall("flick_einvoicing.api.invoice_banner", { doctype, name: docname }).then((banner) => {
+			if (!banner || frm.docname !== docname) return;
+			const esc = frappe.utils.escape_html;
+			const lines = (banner.lines || []).map((line) => `<li>${esc(line)}</li>`);
+			if (banner.more) lines.push(`<li>${__("and {0} more", [banner.more])}</li>`);
+			const $banner = $(`<div class="form-message ${banner.color} flick-banner">
+				<div><b>${esc(banner.title)}</b>${banner.action ? ` <a href="#" class="flick-banner-action ml-1" style="text-decoration: underline">${esc(banner.action.label)}</a>` : ""}</div>
+				${lines.length ? `<ul class="mb-0 mt-1 pl-4">${lines.join("")}</ul>` : ""}
+			</div>`);
+			$banner.find(".flick-banner-action").on("click", (event) => {
+				event.preventDefault();
+				frappe.set_route(...banner.action.route);
+			});
+			$messages.find(".flick-banner").remove();
+			$messages.append($banner).removeClass("hidden");
+		});
+	};
+
 	const handlers = {
 		onload(frm) {
 			// Cancelling follows the invoice's own e-invoicing rules, not a cancel-all of submissions.
@@ -40,6 +65,7 @@ if (!flick_einvoicing.invoice_form_registered) {
 			}
 		},
 		refresh(frm) {
+			show_banner(frm);
 			if (frm.doc.docstatus === 0 && !frm.is_new()) {
 				frm.add_custom_button(
 					__("Check with Flick"),

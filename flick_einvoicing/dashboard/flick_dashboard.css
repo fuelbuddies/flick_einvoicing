@@ -1,0 +1,289 @@
+/* Status colours follow the app's indicators: green done, yellow in progress, red failed,
+   blue queued, grey for what needs nothing. Every colour has a label beside it. */
+.flick {
+	--done: #30a66d;
+	--progress: #edba13;
+	--failed: #e03636;
+	--queued: #0289f7;
+	--quiet: #c7c7c7;
+	--cancelled: #7c7c7c;
+	position: relative;
+	display: grid;
+	gap: 12px;
+	color: var(--text-color);
+	font-size: var(--text-md, 13px);
+}
+.flick.dark {
+	--quiet: #7c7c7c;
+	--cancelled: #c7c7c7;
+}
+.now,
+.period {
+	transition: opacity 0.2s;
+}
+.flick.loading .now,
+.flick.loading .period {
+	opacity: 0.5;
+}
+.now,
+.tracks {
+	display: grid;
+	gap: 12px;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+}
+.period {
+	display: grid;
+	gap: 12px;
+}
+.panel {
+	min-width: 0;
+	padding: 12px 16px;
+	border: 1px solid var(--border-color);
+	border-radius: var(--border-radius-md, 8px);
+	background: var(--card-bg);
+}
+.panel-head {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: space-between;
+	align-items: baseline;
+	gap: 4px 12px;
+	margin-bottom: 8px;
+}
+.block-title {
+	margin: 0;
+	font-size: var(--text-base, 14px);
+	font-weight: 600;
+	color: var(--text-color);
+}
+.panel-aside,
+.figure-note,
+.company-meta,
+.row-note,
+.row-when,
+.key-note,
+.empty {
+	color: var(--text-muted);
+	font-size: var(--text-sm, 12px);
+}
+.empty {
+	margin: 0;
+}
+.panel a {
+	color: var(--text-color);
+}
+.action {
+	font-weight: 500;
+	text-decoration: underline;
+}
+
+/* Companies */
+.company {
+	padding: 8px 0;
+}
+.company + .company {
+	border-top: 1px solid var(--border-color);
+}
+.company-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+}
+.company-name {
+	font-weight: 600;
+	margin-right: 2px;
+}
+.company-meta {
+	margin-top: 2px;
+}
+.warning-note {
+	margin-top: 4px;
+	font-size: var(--text-sm, 12px);
+	color: var(--text-on-orange, #a14c00);
+}
+
+/* Needs attention */
+.row-link {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 2px 10px;
+	padding: 8px 0;
+	text-decoration: none;
+}
+.row-link + .row-link {
+	border-top: 1px solid var(--border-color);
+}
+.row-link:hover .row-title,
+.row-link:focus-visible .row-title {
+	text-decoration: underline;
+}
+.row-title {
+	overflow: hidden;
+	font-weight: 500;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.row-note {
+	grid-column: 2 / 4;
+}
+
+/* Filters */
+.filters {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+}
+.periods {
+	display: inline-flex;
+	gap: 2px;
+	padding: 2px;
+	border-radius: var(--border-radius-md, 8px);
+	background: var(--control-bg);
+}
+.periods button {
+	padding: 2px 10px;
+	border: 0;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--text-muted);
+	font-size: var(--text-sm, 12px);
+	line-height: 20px;
+	cursor: pointer;
+}
+.periods button[aria-pressed="true"] {
+	background: var(--card-bg);
+	color: var(--text-color);
+	font-weight: 600;
+	box-shadow: var(--shadow-xs, 0 1px 2px rgba(0, 0, 0, 0.1));
+}
+.company-filter {
+	width: auto;
+	max-width: 260px;
+}
+
+/* Figures */
+.figures {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 12px;
+}
+.figures .panel {
+	flex: 1 1 140px;
+}
+.figures .hero {
+	flex: 1.5 1 220px;
+}
+.figure-label {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--text-muted);
+	font-size: var(--text-sm, 12px);
+}
+.hero-value {
+	font-size: 48px;
+	font-weight: 600;
+	line-height: 1.15;
+	letter-spacing: -0.02em;
+}
+.tile-value {
+	font-size: 24px;
+	font-weight: 600;
+	line-height: 1.4;
+}
+
+/* Tracks */
+.meter {
+	display: flex;
+	gap: 2px;
+	height: 10px;
+	margin: 4px 0 10px;
+	overflow: hidden;
+	border-radius: 4px;
+	background: var(--control-bg);
+}
+.segment {
+	flex-basis: 0;
+	min-width: 3px;
+	cursor: default;
+}
+.segment:hover,
+.segment:focus-visible {
+	filter: brightness(1.12);
+	outline: none;
+}
+.key-list {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px 16px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.key-list li {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+}
+.key-list b {
+	font-variant-numeric: tabular-nums;
+}
+
+/* Keys */
+.dot,
+.key {
+	display: inline-block;
+	flex: none;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+}
+.key {
+	width: 10px;
+	height: 10px;
+	border-radius: 2px;
+}
+.tone-done {
+	background: var(--done);
+}
+.tone-progress {
+	background: var(--progress);
+}
+.tone-failed {
+	background: var(--failed);
+}
+.tone-queued {
+	background: var(--queued);
+}
+.tone-quiet {
+	background: var(--quiet);
+}
+.tone-cancelled {
+	background: var(--cancelled);
+}
+
+.tip {
+	position: absolute;
+	z-index: 2;
+	padding: 4px 8px;
+	border: 1px solid var(--border-color);
+	border-radius: 6px;
+	background: var(--card-bg);
+	color: var(--text-color);
+	font-size: var(--text-sm, 12px);
+	white-space: nowrap;
+	box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.12));
+	transform: translate(-50%, calc(-100% - 6px));
+	pointer-events: none;
+}
+.tip[hidden] {
+	display: none;
+}
+.tip .tip-share {
+	margin-left: 6px;
+	color: var(--text-muted);
+}

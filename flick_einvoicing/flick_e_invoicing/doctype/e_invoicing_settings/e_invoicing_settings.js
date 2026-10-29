@@ -8,7 +8,22 @@ frappe.ui.form.on("E Invoicing Settings", {
 		frm.set_query("purchase_taxes_template", (doc) => ({ filters: { company: doc.company } }));
 	},
 
+	onload(frm) {
+		// Charge reason codes: PINT-AE's UNCL 7161 list, bundled with the app.
+		frappe.xcall("flick_einvoicing.api.charge_reasons").then((reasons) => {
+			const field = frm.fields_dict.negative_discount_reason_code;
+			field.df.options = reasons;
+			field.set_data(reasons);
+			frm.fields_dict.charge_accounts.grid.update_docfield_property("reason_code", "options", reasons);
+		});
+	},
+
+	company(frm) {
+		show_setup(frm);
+	},
+
 	refresh(frm) {
+		show_setup(frm);
 		if (frm.is_new()) return;
 		const call = (method, message) =>
 			frappe.call({ method: `flick_einvoicing.api.${method}`, args: { company: frm.doc.name }, freeze: true, freeze_message: message });
@@ -62,6 +77,40 @@ frappe.ui.form.on("E Invoicing Settings", {
 		}
 	},
 });
+
+// What this company still needs before e-invoicing can be enabled; nothing once all is done.
+function show_setup(frm) {
+	if (!frm.doc.company) {
+		frm.set_intro(__("Pick the company these settings are for. Each company that issues e-invoices has its own record."), "blue");
+		return;
+	}
+	frappe.xcall("flick_einvoicing.api.setup_overview", { company: frm.doc.company }).then(([row]) => {
+		if (!row) {
+			frm.set_intro(__("{0} is not a UAE company: its country is not United Arab Emirates.", [frappe.utils.escape_html(frm.doc.company)]), "yellow");
+			return;
+		}
+		const esc = frappe.utils.escape_html;
+		const left = row.steps.filter((step) => !step.done);
+		if (!left.length && !row.warnings.length) {
+			frm.set_intro("");
+			return;
+		}
+		const steps = row.steps
+			.map(
+				(step) => `<li class="${step.done ? "text-muted" : ""}">
+					${step.done ? "&#10003;" : "&#9675;"} ${esc(step.label)}
+					${step.detail ? `<div class="small">${esc(step.detail)}</div>` : ""}
+				</li>`
+			)
+			.join("");
+		const warnings = row.warnings.map((text) => `<p class="mb-0 mt-2">${esc(text)}</p>`).join("");
+		let title;
+		if (!left.length) title = __("E-invoicing is set up for {0}", [esc(row.company)]);
+		else if (row.enabled) title = __("E-invoicing is on for {0}, with {1} of {2} setup steps left", [esc(row.company), left.length, row.steps.length]);
+		else title = __("{0} of {1} steps left before e-invoicing can start for {2}", [left.length, row.steps.length, esc(row.company)]);
+		frm.set_intro(`<b>${title}</b><ul class="list-unstyled mb-0 mt-2">${steps}</ul>${warnings}`, left.length ? "blue" : "yellow");
+	});
+}
 
 function show_participants(frm, result) {
 	const rows = (result.participants || [])

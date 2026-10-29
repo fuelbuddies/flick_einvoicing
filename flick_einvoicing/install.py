@@ -1,16 +1,23 @@
+from pathlib import Path
+
 import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 
 from flick_einvoicing.custom_fields import get_custom_fields
-from flick_einvoicing.einvoice import unit_codes
+from flick_einvoicing.einvoice import code_lists
 
 UOM_CODE_LIST = "UN/ECE Recommendation 20"
+DASHBOARD_BLOCK = "Flick Dashboard"
+DASHBOARD_FILES = Path(__file__).with_name("dashboard")
+# The roles that may read E Invoice Submission, which the block's figures come from.
+DASHBOARD_ROLES = ("System Manager", "Accounts Manager", "Accounts User")
 
 
 def after_install():
 	ensure_doctypes()
 	sync_custom_fields()
 	ensure_uom_code_list()
+	ensure_dashboard()
 
 
 def ensure_doctypes():
@@ -31,6 +38,7 @@ def ensure_doctypes():
 def after_migrate():
 	sync_custom_fields()
 	ensure_uom_code_list()
+	ensure_dashboard()
 
 
 def before_uninstall():
@@ -53,7 +61,7 @@ def ensure_uom_code_list():
 	if not frappe.db.exists("DocType", "Code List"):
 		return  # ERPNext without the EDI module; settings validation explains what is missing
 
-	source = unit_codes.read()
+	source = code_lists.read(code_lists.UNITS)
 	details = {
 		"description": "Units of measure for UAE e-invoicing: every code PINT-AE allows. "
 		"Link each ERPNext UOM you invoice in to one code under Applies To.",
@@ -73,4 +81,30 @@ def ensure_uom_code_list():
 		code_list.canonical_uri = "urn:un:unece:uncefact:codelist:standard:UNECE:MeasurementUnitCommonCode"
 		code_list.insert(ignore_permissions=True, set_name=UOM_CODE_LIST)
 
-	unit_codes.load(UOM_CODE_LIST)
+	code_lists.load_units(UOM_CODE_LIST)
+
+
+def ensure_dashboard():
+	"""The Flick workspace's dashboard, a Custom HTML Block kept in step with the files in
+	flick_einvoicing/dashboard. Custom HTML Blocks belong to no module, so the app cannot ship
+	one as a document; edits made to the block on a site are replaced on the next migrate."""
+	content = {
+		field: (DASHBOARD_FILES / f"flick_dashboard.{extension}").read_text(encoding="utf-8")
+		for field, extension in (("html", "html"), ("style", "css"), ("script", "js"))
+	}
+	if frappe.db.exists("Custom HTML Block", DASHBOARD_BLOCK):
+		block = frappe.get_doc("Custom HTML Block", DASHBOARD_BLOCK)
+		roles = {row.role for row in block.roles}
+		if all(block.get(field) == value for field, value in content.items()) and roles == set(
+			DASHBOARD_ROLES
+		):
+			return
+	else:
+		block = frappe.new_doc("Custom HTML Block")
+	block.update(content)
+	block.private = 0
+	block.set("roles", [{"role": role} for role in DASHBOARD_ROLES])
+	if block.is_new():
+		block.insert(ignore_permissions=True, set_name=DASHBOARD_BLOCK)
+	else:
+		block.save(ignore_permissions=True)

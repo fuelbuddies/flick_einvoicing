@@ -18,6 +18,9 @@ COMPLETED = "Completed"
 FAILED = "Failed"
 
 SENDABLE = (QUEUED, ERROR)
+ACCEPTED = (PROCESSING, COMPLETED, FAILED)
+# Refused, stuck on the way, or failed on a track: someone should look.
+NEEDS_ATTENTION = (REJECTED, ERROR, FAILED)
 
 REPORTING_DONE = {"reported", "not_required"}
 EXCHANGE_DONE = {"delivered", "received", "not_required"}
@@ -25,6 +28,21 @@ TRACK_FAILED = "failed"
 
 # Error origins Flick says leave the true state unknown (contact support, never reissue).
 UNCERTAIN_ORIGINS = {"core", "region"}
+
+
+# Where one track of an accepted document stands, for the workspace dashboard. A failed track
+# Flick has not settled is "retrying": still running, like one in progress.
+TRACK_STAGES = ("done", "not_required", "in_progress", "retrying", "failed", "cancelled")
+
+
+def track_stage(state: str | None, settled) -> str:
+	if state in ("reported", "delivered", "received"):
+		return "done"
+	if state in ("not_required", "cancelled"):
+		return state
+	if state == TRACK_FAILED:
+		return "failed" if settled else "retrying"
+	return "in_progress"
 
 
 def merge_track(current: str | None, incoming: str | None, done: set[str]) -> str | None:

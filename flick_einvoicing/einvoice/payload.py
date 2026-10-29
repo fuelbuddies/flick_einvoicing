@@ -25,7 +25,7 @@ from decimal import ROUND_HALF_UP, Decimal
 import frappe
 from frappe.utils import cstr, flt, get_datetime, get_system_timezone, getdate, strip_html
 
-from flick_einvoicing.einvoice import codes, unit_codes
+from flick_einvoicing.einvoice import code_lists, codes
 
 SALES_TEMPLATE = "Sales Taxes and Charges Template"
 PURCHASE_TEMPLATE = "Purchase Taxes and Charges Template"
@@ -177,8 +177,9 @@ class _Builder:
 				# ibr-055-ae: only a volume-discount credit note may stand without the original.
 				# Checked with or without a reason, so both problems show at once.
 				self.problem(
-					"This credit note doesn't name the invoice it corrects. Set Return Against, or for an "
-					f"invoice from another system, {ADD_PRECEDING}. Only reason VD may stand alone."
+					"This credit note doesn't name the invoice it corrects. Make it from the original invoice "
+					"(Create > Return / Credit Note there), which fills Return Against; for an invoice from "
+					f"another system, {ADD_PRECEDING}. Only reason VD may stand alone."
 				)
 		elif D(totals["payable_amount"]) > 0:
 			doc["due_date"] = str(getdate(inv.get("due_date") or inv.posting_date))  # ibr-127-ae
@@ -514,7 +515,7 @@ class _Builder:
 				f"(for example H87 piece or C62 one) and add UOM {uom} under Applies To."
 			)
 			return None
-		if code not in unit_codes.official():
+		if code not in code_lists.codes(code_lists.UNITS):
 			self.problem(
 				f"{label}: UOM {uom} stands for {code} in {code_list}, but PINT-AE has no unit code {code}."
 			)
@@ -560,6 +561,8 @@ class _Builder:
 				"The invoice discount is negative, so it raises the total, and the e-invoice states that as a "
 				"charge. Set Reason Code for Negative Discounts in E Invoicing Settings."
 			)
+		else:
+			self.check_charge_reason(reason_code, "Reason Code for Negative Discounts")
 		return _drop_empty(
 			{
 				"charge_indicator": True,
@@ -576,11 +579,13 @@ class _Builder:
 		for tax in self.charge_rows:
 			mapping = self.charge_accounts[tax.account_head]
 			category = codes.code_of(mapping.tax_category)
+			reason_code = cstr(mapping.reason_code).strip()
+			self.check_charge_reason(reason_code, f"The reason code for charge account {tax.account_head}")
 			entries.append(
 				_drop_empty(
 					{
 						"charge_indicator": True,
-						"reason_code": cstr(mapping.reason_code).strip(),
+						"reason_code": reason_code,
 						"reason": cstr(mapping.reason or tax.description) or None,
 						"amount": self.money(tax.tax_amount),
 						"tax_category": category,
@@ -589,6 +594,14 @@ class _Builder:
 				)
 			)
 		return entries
+
+	def check_charge_reason(self, reason_code: str, label: str) -> None:
+		"""Settings refuse other codes, but a code the specification later drops stays saved."""
+		if reason_code not in code_lists.codes(code_lists.CHARGE_REASONS):
+			self.problem(
+				f"{label} in E Invoicing Settings is {reason_code}, which is not a charge reason code "
+				"in PINT-AE's UNCL 7161 list. Pick one from the list there."
+			)
 
 	def category_rate(self, category: str | None) -> str | None:
 		if category in ("S", "AE"):
@@ -868,10 +881,16 @@ class _Builder:
 	# References and supporting documents
 
 	def order_reference(self) -> dict | None:
+		# PINT-AE: "an invoice instance cannot reference a sales order, without providing the
+		# corresponding purchase order reference" (Flick's schema check refuses it), so the sales
+		# order goes only beside the buyer's PO number.
+		purchase_order = cstr(self.inv.get("po_no")).strip()
+		if not purchase_order:
+			return None
 		sales_orders = _unique(item.get("sales_order") for item in self.inv.items)
 		return _drop_empty(
 			{
-				"purchase_order_id": cstr(self.inv.get("po_no")) or None,
+				"purchase_order_id": purchase_order,
 				"sales_order_id": sales_orders[0] if sales_orders else None,
 			}
 		)
