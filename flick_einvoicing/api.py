@@ -237,6 +237,13 @@ def download(name: str, kind: str = "pdf"):
 
 
 @frappe.whitelist()
+def einvoicing_enabled(company: str) -> bool:
+	"""For the invoice form, which marks the tax template required where it decides the VAT."""
+	settings = settings_for(company)
+	return bool(settings and settings.enabled)
+
+
+@frappe.whitelist()
 def check_invoice(doctype: str, name: str) -> dict:
 	"""Run every check without submitting: ours, then Flick's full validation."""
 	if doctype not in INVOICE_DOCTYPES:

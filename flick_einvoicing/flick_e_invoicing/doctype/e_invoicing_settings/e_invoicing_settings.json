@@ -28,6 +28,8 @@
   "skip_internal_customers",
   "content_section",
   "discount_style",
+  "negative_discount_reason_code",
+  "negative_discount_reason",
   "export_emirate",
   "column_break_content",
   "attach_pdf",
@@ -229,6 +231,20 @@
    "fieldtype": "Select",
    "label": "Invoice Discount",
    "options": "Document-level allowance\nSpread over lines"
+  },
+  {
+   "depends_on": "eval:doc.discount_style != 'Spread over lines'",
+   "description": "A negative invoice discount raises the total (to round it up, for instance), and the e-invoice states it as a charge. Charges carry a UNCL 7161 reason code: agree which one with the client. There is no default.",
+   "fieldname": "negative_discount_reason_code",
+   "fieldtype": "Data",
+   "label": "Reason Code for Negative Discounts"
+  },
+  {
+   "depends_on": "eval:doc.discount_style != 'Spread over lines'",
+   "description": "Optional wording sent with that code.",
+   "fieldname": "negative_discount_reason",
+   "fieldtype": "Data",
+   "label": "Reason for Negative Discounts"
   },
   {
    "description": "Flick requires an emirate even on an address abroad (ibr-152-ae): use the emirate the goods leave from.",
@@ -526,7 +542,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-10-28 22:00:00.000000",
+ "modified": "2026-10-29 09:00:00.000000",
  "modified_by": "Administrator",
  "module": "Flick E-Invoicing",
  "name": "E Invoicing Settings",

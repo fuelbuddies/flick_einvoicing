@@ -420,7 +420,17 @@ def line(fx, qty, rate, template=None, item=None, **extra):
 	}
 
 
-def make_invoice(fx, lines, customer=None, address=None, discount=None, submit=False, taxes=None, **values):
+def make_invoice(
+	fx,
+	lines,
+	customer=None,
+	address=None,
+	discount=None,
+	submit=False,
+	taxes=None,
+	discount_on="Net Total",
+	**values,
+):
 	"""lines: (qty, rate, item_tax_template or None) tuples, or ready row dicts.
 
 	An invoice whose every line carries an item tax template gets the no-VAT invoice template:
@@ -459,7 +469,7 @@ def make_invoice(fx, lines, customer=None, address=None, discount=None, submit=F
 		}
 	)
 	if discount:
-		si.apply_discount_on = "Net Total"
+		si.apply_discount_on = discount_on
 		si.discount_amount = discount
 	si.insert()
 	if submit:

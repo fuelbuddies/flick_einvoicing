@@ -138,7 +138,8 @@ def _invoice_fields(container: dict, received_link: bool = False) -> list[dict]:
 			"fieldtype": "Table",
 			"options": "E Invoice Preceding Invoice",
 			"no_copy": 1,
-			"description": "Advance invoices this invoice settles, or the invoice a debit note adds to.",
+			"description": "Advance invoices this invoice settles. On a credit or debit note, the original "
+			"when ERPNext doesn't hold it, such as an invoice from your previous system: give its date too.",
 		},
 		_data("einvoice_buyer_reference", "Buyer Reference"),
 		_data(

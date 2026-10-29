@@ -12,7 +12,7 @@ Every case in Flick's UAE developer guide, each checked against Flick's own vali
 - **Transaction types:** free trade zone, deemed supply, summary invoice, continuous supply, disclosed agent billing, e-commerce, export, and the profit margin scheme (which Flick currently rejects).
 - **Tax:** standard, zero-rated, exempt (with reason), out of scope, reverse charge (goods type, GTIN), and foreign currency with the AED totals.
 - **Buyers:** Peppol IDs, and the predefined recipients for buyers abroad not on Peppol and for buyers outside UAE e-invoicing.
-- **Content:** document-level discounts and charges, price discounts, delivery (address, date, incoterms), every reference field, attachments (embedded, link or reference), payment means by mode of payment, instalments, payee, tax representative, seller overrides, HS and SAC codes, origin, batch and variant attributes.
+- **Content:** document-level discounts and charges (a negative discount goes as a charge), price discounts, delivery (address, date, incoterms), every reference field, attachments (embedded, link or reference), payment means by mode of payment, instalments, payee, tax representative, seller overrides, HS and SAC codes, origin, batch and variant attributes.
 - **Operations:** live or batch sending (bulk endpoint optional), Check with Flick before submitting, Flick's PDF and UBL attached to the invoice, artifact downloads (FTA tax data document, MLS, signed envelope), Peppol lookup on parties, events feed or webhook, API key or OAuth client.
 
 ### Setup
@@ -21,9 +21,10 @@ Every case in Flick's UAE developer guide, each checked against Flick's own vali
 2. **E Invoicing Settings**, one per company:
    - Base URL from Flick (pre-production: `https://preprod-ae-api.flickeinvoice.com`), credential, participant ID. **Test Connection** lists the participants the credential covers.
    - Start date, submission mode, default payment means (with IBAN for credit transfer), and the emirate to state on foreign addresses.
-   - **Tax Treatments:** map every VAT template, sales, purchase and item, to S, Z, E, O, AE or N. A line's Item Tax Template wins over the invoice's template. An unmapped template stops the submit; there is no default.
+   - **Tax Treatments:** map every VAT template, sales, purchase and item, to S, Z, E, O, AE or N. A line's Item Tax Template wins over the invoice's template. An unmapped template stops the submit; there is no default. Every invoice needs a tax template unless each of its lines has an Item Tax Template, and the invoice form marks the field required for companies with e-invoicing on.
    - **Charge Accounts:** map accounts charged "Actual" in the taxes table, such as freight, to a reason code and VAT category.
-3. **Units of measure:** in the Code List *UN/ECE Recommendation 20*, add the ERPNext UOMs each code stands for under Applies To.
+   - **Reason Code for Negative Discounts:** a negative invoice discount raises the total (to round it up, for instance) and goes on the e-invoice as a charge, which needs a UNCL 7161 reason code. Agree it with the client; until it is set, such invoices are blocked.
+3. **Units of measure:** the Code List *UN/ECE Recommendation 20* holds every unit code PINT-AE allows. On each code's Common Code, add the ERPNext UOMs it stands for under Applies To. A UOM linked to a code outside that list is refused.
 4. **Customers:** Peppol ID (`0235:` plus the 10-digit TIN) or a routing for buyers abroad, TRN in Tax ID, trade licence, and a billing address with its Emirate.
 5. **Suppliers:** Peppol ID (matches invoices you receive), Self-Billing Agreement where you issue their invoices.
 6. Tick Enabled.
@@ -35,9 +36,22 @@ Every case in Flick's UAE developer guide, each checked against Flick's own vali
 - Retries are safe: submissions go with `?no_error`, so Flick answers a number it already holds with that document, and the app adopts it only if it matches what would have been sent.
 - **Nothing is ever reissued automatically.** A failed track that is not *settled* is still being retried by Flick. **Resubmit** appears only when both tracks failed for good, which is when Flick releases the number.
 - An invoice can be cancelled only before it reached Flick, or after Flick released its number. Otherwise correct it with a credit note.
+- A credit note needs a reason and the invoice it corrects; only reason VD (volume discount) may stand alone. A debit note needs the original too. Use Return Against, or, when the original isn't in ERPNext (an invoice from the previous system), give its number and date under Preceding Invoices on the E-Invoicing tab.
 - Money on the e-invoice has 2 decimals, whatever the site's precision. VAT is rounded half-up, as Flick derives it.
 
 Skipped, with no submission: B2C invoices (customer type Individual, switchable), opening invoices, consolidated POS sales invoices, invoices before the start date, internal customers when that setting is on, and purchase invoices without a self-billing agreement.
+
+### Unit codes
+
+The codes ship in `flick_einvoicing/einvoice/unit_codes.json`, read from the [PINT-AE code list](https://docs.peppol.eu/poac/ae/v1.0.1/pint-ae/trn-invoice/codelist/UNECERec20/) (UN/ECE Recommendation 20 with Recommendation 21 package codes, issued 2025-07-30). Every install and migrate loads them into the Code List: new codes are added and changed names updated. A code the specification drops stays on the site, since UOMs may link to it, and invoices using it are refused.
+
+When the specification publishes a new list, refresh the file from the bench folder. It prints what changed:
+
+```bash
+python apps/flick_einvoicing/flick_einvoicing/einvoice/unit_codes.py [code list page URL]
+```
+
+Review the diff, commit and deploy; migrate brings every site up to date. A new version of the specification lives at a new URL, so pass it.
 
 ### Tests
 

@@ -8,7 +8,8 @@ from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_sales_retu
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, today
 
-from flick_einvoicing.einvoice import inbound, service
+from flick_einvoicing.api import einvoicing_enabled
+from flick_einvoicing.einvoice import inbound, service, unit_codes
 from flick_einvoicing.einvoice import status as st
 from flick_einvoicing.einvoice.payload import build_payload, check_keys, invoice_problems
 from flick_einvoicing.einvoice.scope import settings_for
@@ -147,6 +148,57 @@ class TestDocuments(FlowTestCase):
 		self.assertEqual((line_["unit_price"], line_["line_extension_amount"]), ("33.333333", "100.00"))
 		self.assertNotIn("allowance_charges", payload)
 
+	def test_negative_discount_as_document_level_charge(self):
+		# FC stands in for the charge reason the client picks; any UNCL 7161 code serves here.
+		self.settings(negative_discount_reason_code="FC", negative_discount_reason="Rounding")
+		try:
+			si = make_invoice(self.fx, [(3, 40, None)], discount=-20)
+			payload = self.payload(si)
+		finally:
+			self.settings(negative_discount_reason_code=None, negative_discount_reason=None)
+		self.assertEqual(payload["invoice_lines"][0]["line_extension_amount"], "120.00")
+		self.assertEqual(
+			payload["allowance_charges"],
+			[
+				{
+					"charge_indicator": True,
+					"reason_code": "FC",
+					"reason": "Rounding",
+					"amount": "20.00",
+					"tax_category": "S",
+					"tax_percentage": "5",
+				}
+			],
+		)
+		totals = payload["invoice_totals"]
+		self.assertEqual(
+			(
+				totals["charge_total_amount"],
+				totals["tax_exclusive_amount"],
+				totals["tax_amount"],
+				totals["payable_amount"],
+			),
+			("20.00", "140.00", "7.00", "147.00"),
+		)
+		self.assertNotIn("allowance_total_amount", totals)
+
+	def test_negative_discount_on_grand_total_keeps_the_books_vat(self):
+		"""A total rounded up through the discount: the e-invoice's VAT is the books' VAT."""
+		self.settings(negative_discount_reason_code="FC")
+		try:
+			si = make_invoice(self.fx, [(1, 837.5, None)], discount=-0.62, discount_on="Grand Total")
+			payload = self.payload(si)
+		finally:
+			self.settings(negative_discount_reason_code=None)
+		totals = payload["invoice_totals"]
+		self.assertEqual(totals["tax_amount"], f"{si.total_taxes_and_charges:.2f}")
+		self.assertEqual(totals["tax_exclusive_amount"], f"{si.net_total:.2f}")
+		self.assertEqual(payload["allowance_charges"][0]["amount"], f"{si.net_total - 837.5:.2f}")
+
+	def test_negative_discount_needs_a_reason_code(self):
+		si = make_invoice(self.fx, [(3, 40, None)], discount=-20)
+		self.assertTrue(any("Reason Code for Negative Discounts" in p for p in self.problems(si)))
+
 	def test_item_discount_as_price_discount(self):
 		row = line(self.fx, 2, 40, price_list_rate=50, discount_percentage=20)
 		si = make_invoice(self.fx, [row])
@@ -190,12 +242,70 @@ class TestDocuments(FlowTestCase):
 		cn.insert()
 		self.assertTrue(any("Credit Note Reason" in p for p in self.problems(cn)))
 
+	def test_credit_note_lists_a_missing_reason_and_original_together(self):
+		cn = make_invoice(self.fx, [(-1, 100, None)], is_return=1)
+		problems = self.problems(cn)
+		self.assertTrue(any("Credit Note Reason" in p for p in problems))
+		self.assertTrue(any("doesn't name the invoice it corrects" in p for p in problems))
+
+	def test_credit_note_for_an_invoice_from_another_system(self):
+		issued = add_days(today(), -400)
+		cn = make_invoice(
+			self.fx,
+			[(-1, 100, None)],
+			is_return=1,
+			einvoice_credit_note_reason="DL8.61.1.D - Goods or services returned",
+			einvoice_preceding_invoices=[{"document_identifier": "OLD-ERP-1001", "issue_date": issued}],
+		)
+		payload = self.payload(cn)
+		self.assertEqual(payload["document_type"], "381")
+		self.assertEqual(
+			payload["document_references"], [{"document_identifier": "OLD-ERP-1001", "issue_date": issued}]
+		)
+
 	def test_debit_note_is_a_tax_invoice_referencing_the_original(self):
 		si = make_invoice(self.fx, [(1, 100, None)], submit=True)
 		dn = make_invoice(self.fx, [(1, 20, None)], is_debit_note=1, return_against=si.name)
 		payload = self.payload(dn)
 		self.assertEqual(payload["document_type"], "380")
 		self.assertEqual(payload["document_references"][0]["document_identifier"], si.name)
+
+	def test_debit_note_for_an_invoice_from_another_system(self):
+		dn = make_invoice(
+			self.fx,
+			[(1, 20, None)],
+			is_debit_note=1,
+			einvoice_preceding_invoices=[
+				{"document_identifier": "OLD-ERP-1001", "issue_date": add_days(today(), -400)}
+			],
+		)
+		payload = self.payload(dn)
+		self.assertEqual(payload["document_type"], "380")
+		self.assertEqual(payload["document_references"][0]["document_identifier"], "OLD-ERP-1001")
+
+	def test_debit_note_needs_its_original(self):
+		dn = make_invoice(self.fx, [(1, 20, None)], is_debit_note=1)
+		self.assertTrue(any("referencing the original" in p for p in self.problems(dn)))
+
+	def test_unit_codes_are_the_specifications(self):
+		official = unit_codes.official()
+		self.assertGreater(len(official), 2000)
+		self.assertEqual(official["H87"][0], "piece")
+		self.assertIn("XBX", official)  # package codes, from Recommendation 21
+		loaded = frappe.get_all(
+			"Common Code", filters={"code_list": "UN/ECE Recommendation 20"}, pluck="common_code"
+		)
+		self.assertFalse(set(official) - set(loaded), "install and migrate load every code")
+
+	def test_unit_code_outside_the_specification_is_refused(self):
+		si = make_invoice(self.fx, [(1, 100, None)])
+		with patch("erpnext.edi.doctype.code_list.code_list.get_codes_for", return_value=("PCS",)):
+			problems = self.problems(si)
+		self.assertTrue(any("PINT-AE has no unit code PCS" in p for p in problems))
+
+	def test_form_marks_the_template_required_where_einvoicing_is_on(self):
+		self.assertTrue(einvoicing_enabled(self.fx.company.name))
+		self.assertFalse(einvoicing_enabled("_Test EInv No Such Company"))
 
 	def test_problems_are_collected_and_block_the_submit(self):
 		si = make_invoice(

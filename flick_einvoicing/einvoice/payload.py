@@ -25,13 +25,15 @@ from decimal import ROUND_HALF_UP, Decimal
 import frappe
 from frappe.utils import cstr, flt, get_datetime, get_system_timezone, getdate, strip_html
 
-from flick_einvoicing.einvoice import codes
+from flick_einvoicing.einvoice import codes, unit_codes
 
 SALES_TEMPLATE = "Sales Taxes and Charges Template"
 PURCHASE_TEMPLATE = "Purchase Taxes and Charges Template"
 ITEM_TEMPLATE = "Item Tax Template"
 VAT_CHARGE_TYPES = ("On Net Total", "On Previous Row Total", "On Previous Row Amount")
 NO_REMARKS = ("", "No Remarks")
+# An original that ERPNext doesn't hold, such as one issued in the previous system.
+ADD_PRECEDING = "add its number and date under Preceding Invoices on the E-Invoicing tab"
 
 
 class InvoiceProblems(frappe.ValidationError):
@@ -125,9 +127,9 @@ class _Builder:
 		document_type = self.document_type(categories)
 		is_credit_note = document_type in codes.CREDIT_NOTE_TYPES
 
-		allowances = self.allowances(lines)
-		charges = self.charges()
-		totals = self.totals(lines, allowances, charges)
+		allowances, discount_charges = self.document_discount(lines)
+		charges = self.charges() + discount_charges
+		totals = self.totals(lines, allowances, charges, discount_charges)
 
 		doc = {
 			"document_identifier": inv.name,
@@ -171,10 +173,12 @@ class _Builder:
 			if not reason:
 				self.problem("Choose a Credit Note Reason on the E-Invoicing tab.")
 			doc["credit_note_reason_code"] = reason
-			if reason and reason != codes.REASON_WITHOUT_REFERENCE and not doc["document_references"]:
+			if reason != codes.REASON_WITHOUT_REFERENCE and not doc["document_references"]:
 				# ibr-055-ae: only a volume-discount credit note may stand without the original.
+				# Checked with or without a reason, so both problems show at once.
 				self.problem(
-					"This credit note isn't linked to an original invoice (Return Against). Only reason VD may stand alone."
+					"This credit note doesn't name the invoice it corrects. Set Return Against, or for an "
+					f"invoice from another system, {ADD_PRECEDING}. Only reason VD may stand alone."
 				)
 		elif D(totals["payable_amount"]) > 0:
 			doc["due_date"] = str(getdate(inv.get("due_date") or inv.posting_date))  # ibr-127-ae
@@ -500,46 +504,72 @@ class _Builder:
 			)
 			return None
 		found = get_codes_for(code_list, "UOM", uom)
-		if len(found) == 1:
-			return found[0]
 		if len(found) > 1:
 			self.problem(f"UOM {uom} is linked to more than one code in {code_list}: {', '.join(found)}.")
 			return None
-		default = get_default_code(code_list)
-		if default:
-			return default
-		self.problem(
-			f"{label}: UOM {uom} has no code in Code List {code_list}. Open the matching Common Code "
-			f"(for example H87 piece or C62 unit) and add UOM {uom} under Applies To."
-		)
-		return None
+		code = found[0] if found else get_default_code(code_list)
+		if not code:
+			self.problem(
+				f"{label}: UOM {uom} has no code in Code List {code_list}. Open the matching Common Code "
+				f"(for example H87 piece or C62 one) and add UOM {uom} under Applies To."
+			)
+			return None
+		if code not in unit_codes.official():
+			self.problem(
+				f"{label}: UOM {uom} stands for {code} in {code_list}, but PINT-AE has no unit code {code}."
+			)
+			return None
+		return code
 
 	# Allowances, charges and totals
 
-	def allowances(self, lines: list[_Line]) -> list[dict]:
+	def document_discount(self, lines: list[_Line]) -> tuple[list[dict], list[dict]]:
+		"""The invoice discount per VAT category: allowances, and charges where it is negative.
+
+		A negative discount raises the total (to round it up, say). PINT-AE has no negative
+		allowance, so it goes as a charge, under the reason code the client chose in settings."""
 		if not self.allowance_style:
-			return []
+			return [], []
 		by_category: dict[str, Decimal] = {}
 		for line in lines:
 			if line.category:
 				by_category[line.category] = by_category.get(line.category, D(0)) + (line.amount - line.net)
-		entries = []
+		allowances, charges = [], []
 		for category, amount in by_category.items():
-			if amount <= 0:
-				continue
-			entries.append(
-				_drop_empty(
-					{
-						"charge_indicator": False,
-						"reason_code": codes.DISCOUNT_REASON_CODE,
-						"reason": "Discount",
-						"amount": f"{amount:.{self.p}f}",
-						"tax_category": category,
-						"tax_percentage": self.category_rate(category),
-					}
+			if amount > 0:
+				allowances.append(
+					_drop_empty(
+						{
+							"charge_indicator": False,
+							"reason_code": codes.DISCOUNT_REASON_CODE,
+							"reason": "Discount",
+							"amount": f"{amount:.{self.p}f}",
+							"tax_category": category,
+							"tax_percentage": self.category_rate(category),
+						}
+					)
 				)
+			elif amount < 0:
+				charges.append(self.discount_charge(category, -amount))
+		return allowances, charges
+
+	def discount_charge(self, category: str, amount: Decimal) -> dict:
+		reason_code = cstr(self.settings.get("negative_discount_reason_code")).strip()
+		if not reason_code:
+			self.problem(
+				"The invoice discount is negative, so it raises the total, and the e-invoice states that as a "
+				"charge. Set Reason Code for Negative Discounts in E Invoicing Settings."
 			)
-		return entries
+		return _drop_empty(
+			{
+				"charge_indicator": True,
+				"reason_code": reason_code or None,
+				"reason": cstr(self.settings.get("negative_discount_reason")).strip() or None,
+				"amount": f"{amount:.{self.p}f}",
+				"tax_category": category,
+				"tax_percentage": self.category_rate(category),
+			}
+		)
 
 	def charges(self) -> list[dict]:
 		entries = []
@@ -567,7 +597,9 @@ class _Builder:
 			return "0"
 		return None
 
-	def totals(self, lines: list[_Line], allowances: list[dict], charges: list[dict]) -> dict:
+	def totals(
+		self, lines: list[_Line], allowances: list[dict], charges: list[dict], discount_charges: list[dict]
+	) -> dict:
 		"""Stated totals, so the e-invoice matches ERPNext to the fils.
 
 		Flick enforces its arithmetic on stated totals, so the same rules run here first
@@ -583,17 +615,20 @@ class _Builder:
 		line_total = sum((line.amount for line in lines), D(0))
 		allowance_total = sum((D(a["amount"]) for a in allowances), D(0))
 		charge_total = sum((D(c["amount"]) for c in charges), D(0))
+		# A negative invoice discount is part of ERPNext's net total; other charges are tax rows.
+		discount_charge_total = sum((D(c["amount"]) for c in discount_charges), D(0))
 
 		net_total = self.dec(inv.net_total)
 		taxes_total = self.dec(inv.total_taxes_and_charges)
-		books_vat = taxes_total - charge_total
+		books_vat = taxes_total - (charge_total - discount_charge_total)
 		grand_total = self.dec(inv.grand_total)
 		rounded = flt(inv.get("rounded_total")) and not inv.get("disable_rounded_total")
 		payable = self.dec(inv.rounded_total) if rounded else grand_total
 
-		if abs(line_total - allowance_total - net_total) > per_line:
+		after_discount = line_total - allowance_total + discount_charge_total
+		if abs(after_discount - net_total) > per_line:
 			self.problem(
-				f"Line amounts less the discount come to {line_total - allowance_total}, but the net total is {net_total}."
+				f"Line amounts after the invoice discount come to {after_discount}, but the net total is {net_total}."
 			)
 		tax_exclusive = line_total - allowance_total + charge_total
 
@@ -852,9 +887,12 @@ class _Builder:
 					"issue_date": str(original_date) if original_date else None,
 				}
 			)
-		elif self.is_debit_note:
+		elif self.is_debit_note and not any(
+			cstr(row.document_identifier).strip() for row in inv.get("einvoice_preceding_invoices") or []
+		):
 			self.problem(
-				"A debit note is sent as a tax invoice referencing the original: set Return Against."
+				"A debit note is sent as a tax invoice referencing the original: set Return Against, or for "
+				f"an invoice from another system, {ADD_PRECEDING}."
 			)
 		for row in inv.get("einvoice_preceding_invoices") or []:
 			references.append(

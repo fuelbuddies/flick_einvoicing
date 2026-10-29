@@ -82,4 +82,42 @@ if (!flick_einvoicing.invoice_form_registered) {
 	frappe.ui.form.on("Sales Invoice", handlers);
 	frappe.ui.form.on("POS Invoice", handlers);
 	frappe.ui.form.on("Purchase Invoice", handlers);
+
+	// The tax template is what tells the e-invoice each line's VAT treatment, unless every line
+	// carries its own Item Tax Template. Opening invoices are never e-invoiced.
+	const enabled = {};
+	const mark_template_required = (frm) => {
+		const company = frm.doc.company;
+		if (!company || !frm.fields_dict.taxes_and_charges) return;
+		const apply = () => {
+			const items = frm.doc.items || [];
+			const lines_decide = items.length > 0 && items.every((row) => row.item_tax_template);
+			frm.toggle_reqd(
+				"taxes_and_charges",
+				Boolean(enabled[company]) && frm.doc.is_opening !== "Yes" && !lines_decide
+			);
+		};
+		if (company in enabled) {
+			apply();
+			return;
+		}
+		frappe.xcall("flick_einvoicing.api.einvoicing_enabled", { company }).then((on) => {
+			enabled[company] = on;
+			apply();
+		});
+	};
+	const template_handlers = {
+		refresh: mark_template_required,
+		company: mark_template_required,
+		is_opening: mark_template_required,
+	};
+	const line_handlers = {
+		item_tax_template: mark_template_required,
+		items_add: mark_template_required,
+		items_remove: mark_template_required,
+	};
+	frappe.ui.form.on("Sales Invoice", template_handlers);
+	frappe.ui.form.on("POS Invoice", template_handlers);
+	frappe.ui.form.on("Sales Invoice Item", line_handlers);
+	frappe.ui.form.on("POS Invoice Item", line_handlers);
 }
