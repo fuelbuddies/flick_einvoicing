@@ -16,7 +16,7 @@ if (!flick_einvoicing.invoice_form_registered) {
 
 	const show_check = (result) => {
 		if (result.skipped) {
-			frappe.msgprint({ title: __("Not e-invoiced"), message: result.skipped, indicator: "blue" });
+			frappe.msgprint({ title: __("E-invoicing not applicable"), message: result.skipped, indicator: "blue" });
 			return;
 		}
 		if (result.valid) {

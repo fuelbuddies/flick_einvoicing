@@ -1,7 +1,7 @@
 """Which invoices are e-invoiced at all."""
 
 import frappe
-from frappe.utils import getdate
+from frappe.utils import formatdate, getdate
 
 SETTINGS = "E Invoicing Settings"
 
@@ -27,7 +27,7 @@ def skip_reason(invoice, settings) -> str | None:
 	if invoice.get("is_opening") == "Yes":
 		return "Opening invoices record balances, not supplies."
 	if settings.start_date and getdate(invoice.posting_date) < getdate(settings.start_date):
-		return "Posted before the e-invoicing start date."
+		return f"Posted before the e-invoicing start date, {formatdate(settings.start_date)}."
 	if invoice.get("is_consolidated"):
 		return "Consolidated from POS invoices, which are filed one by one."
 	if settings.skip_internal_customers and invoice.get("is_internal_customer"):
@@ -37,5 +37,5 @@ def skip_reason(invoice, settings) -> str | None:
 		and settings.skip_b2c
 		and frappe.get_cached_value("Customer", invoice.customer, "customer_type") == "Individual"
 	):
-		return "B2C (customer type Individual), which is out of e-invoicing scope today."
+		return "B2C sale (customer type Individual), out of scope for now."
 	return None

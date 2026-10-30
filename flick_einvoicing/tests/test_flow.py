@@ -1315,7 +1315,7 @@ class TestGuidance(FlowTestCase):
 		)
 		banner = invoice_banner("Sales Invoice", si.name)
 		self.assertEqual(banner["color"], "blue")
-		self.assertIn("B2C", banner["title"])
+		self.assertEqual(banner["title"], "E-invoicing not applicable: B2C sale (customer type Individual), out of scope for now.")
 
 	def test_banner_after_submitting_follows_the_submission(self):
 		si, sub = self.submitted_invoice()

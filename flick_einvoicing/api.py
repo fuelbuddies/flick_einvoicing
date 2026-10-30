@@ -318,7 +318,7 @@ def _invoice_banner(invoice) -> dict | None:
 		return _submission_banner(invoice.einvoice_submission)
 	reason = skip_reason(invoice, settings)
 	if reason:
-		return {"color": "blue", "title": _("Not e-invoiced: {0}").format(_(reason))}
+		return {"color": "blue", "title": _("E-invoicing not applicable: {0}").format(_(reason))}
 	if invoice.docstatus != 0:
 		return {"color": "blue", "title": _("Not e-invoiced: submitted before e-invoicing was switched on.")}
 	problems = invoice_problems(invoice, settings)
