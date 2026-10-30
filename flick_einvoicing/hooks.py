@@ -37,8 +37,13 @@ _invoice_events = {
 doc_events = {
 	"Sales Invoice": _invoice_events,
 	"POS Invoice": _invoice_events,
-	# Self-billed invoices: purchase invoices from suppliers with a self-billing agreement.
-	"Purchase Invoice": _invoice_events,
+	# Self-billed invoices: purchase invoices from suppliers with a self-billing agreement. Those
+	# made from received e-invoices remember the supplier's item codes on submit.
+	"Purchase Invoice": {
+		**_invoice_events,
+		"before_submit": [_invoice_events["before_submit"], "flick_einvoicing.einvoice.inbound.check_unmatched_lines"],
+		"on_submit": [_invoice_events["on_submit"], "flick_einvoicing.einvoice.inbound.remember_item_codes"],
+	},
 }
 
 # Scheduled Tasks

@@ -331,6 +331,17 @@ def get_custom_fields() -> dict[str, list[dict]]:
 				},
 			],
 		),
+		"Purchase Invoice Item": [
+			{
+				"fieldname": "einvoice_supplier_item_code",
+				"label": "Supplier's Item Code",
+				"fieldtype": "Data",
+				"insert_after": "item_name",
+				"read_only": 1,
+				"depends_on": "eval:doc.einvoice_supplier_item_code",
+				"description": "From the supplier's e-invoice. Submitting remembers it on the item chosen here.",
+			}
+		],
 		"Item": [
 			{
 				"fieldname": "einvoice_sac_code",

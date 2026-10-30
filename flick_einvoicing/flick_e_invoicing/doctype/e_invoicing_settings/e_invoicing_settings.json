@@ -527,6 +527,7 @@
   },
   {
    "depends_on": "eval:doc.receive_invoices",
+   "description": "A received line no item of ours matches waits on this item, with the supplier's description, and the purchase invoice can't be submitted until each such line is given our item. Left empty, the app's own item \"Unmatched e-invoice line\" is used (never sold or stocked).",
    "fieldname": "purchase_item",
    "fieldtype": "Link",
    "label": "Item for Unmatched Lines",

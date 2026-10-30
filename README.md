@@ -42,6 +42,15 @@ Every case in Flick's UAE developer guide, each checked against Flick's own vali
 - A sales order is referenced only beside the customer's PO number: PINT-AE allows no sales order reference without one.
 - Money on the e-invoice has 2 decimals, whatever the site's precision. VAT is rounded half-up, as Flick derives it.
 
+### Receiving
+
+With **Receive Invoices** on, invoices suppliers send you over Peppol arrive every few minutes as **E Invoice Received** records (supplier matched by Peppol ID, then TRN; Flick's PDF and UBL attached). Flick reports the receipt to the FTA itself. **Create Purchase Invoice** makes a draft for review; nothing is submitted for you.
+
+- **From your receipts and orders:** when the supplier quotes your Purchase Receipt number, their delivery note number (your receipt's Supplier Delivery Note) or your Purchase Order number, the draft is made from those receipts (or from the order, while nothing has been received against it), so they show as billed. Each invoice line takes the order line it names, else the first one for the same item. A draft never bills more, or at a higher price, than waits on the receipt or order: such differences stay with the reviewer, listed on the record.
+- **Items:** matched by the supplier's code (Supplier Items on your item), then the barcode (GTIN), then your own code if the supplier sent it. Never by name.
+- **Unmatched lines** wait on a placeholder item, the app's own "Unmatched e-invoice line" (made on every site, never sold or stocked) or the company's Item for Unmatched Lines. No purchase invoice can be submitted while a line is on it.
+- **Remembered:** submitting the reviewed invoice stores each supplier code against the item chosen for it, so the next invoice matches by itself. A later choice replaces an earlier one.
+
 Skipped, with no submission: B2C invoices (customer type Individual, switchable), opening invoices, consolidated POS sales invoices, invoices before the start date, internal customers when that setting is on, and purchase invoices without a self-billing agreement.
 
 ### Workspace and guidance

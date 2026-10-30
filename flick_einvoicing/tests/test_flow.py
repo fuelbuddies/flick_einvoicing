@@ -5,6 +5,7 @@ from unittest.mock import patch
 import frappe
 from erpnext.accounts.doctype.purchase_invoice.purchase_invoice import make_debit_note
 from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_sales_return
+from erpnext.buying.doctype.purchase_order.purchase_order import make_purchase_receipt
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_days, today
 
@@ -13,15 +14,18 @@ from flick_einvoicing.einvoice import code_lists, inbound, service, setup
 from flick_einvoicing.einvoice import status as st
 from flick_einvoicing.einvoice.payload import build_payload, check_keys, invoice_problems
 from flick_einvoicing.einvoice.scope import settings_for
-from flick_einvoicing.install import DASHBOARD_BLOCK, DASHBOARD_ROLES, ensure_dashboard
+from flick_einvoicing.install import DASHBOARD_BLOCK, DASHBOARD_ROLES, ensure_dashboard, ensure_placeholder_item
 from flick_einvoicing.providers.flick import FlickClient
 from flick_einvoicing.tests.utils import (
 	BUYER_PEPPOL,
 	BUYER_TRN,
 	DOC_ID,
 	GTIN,
+	PREFIX,
 	SUPPLIER_PEPPOL,
 	FakeFlick,
+	_branch_of,
+	_item,
 	accepted,
 	binary,
 	detail,
@@ -1247,12 +1251,245 @@ class TestReceiving(FlowTestCase):
 		self.default_branch_of_test_company()
 		pi = frappe.get_doc("Purchase Invoice", inbound.create_purchase_invoice(name))
 		self.assertEqual((pi.docstatus, pi.bill_no, pi.supplier), (0, "SUP-INV-77", self.fx.supplier))
-		self.assertEqual([row.item_code for row in pi.items], [self.fx.phone, self.fx.item])
+		self.assertEqual(
+			[(row.item_code, row.item_name) for row in pi.items],
+			[(self.fx.phone, "Smart phone"), (self.fx.item, "Mystery part")],
+		)
 		self.assertEqual(pi.taxes_and_charges, self.fx.purchase_vat)
 		self.assertAlmostEqual(pi.grand_total, 262.5)
 		self.assertIn("no item matched", frappe.db.get_value("E Invoice Received", name, "notes"))
 		self.assertEqual(pi.einvoice_received, name)
 		self.assertIsNone(service.active_submission("Purchase Invoice", pi.name))
+		# The second line only waits on the Item for Unmatched Lines: no submitting it there.
+		with self.assertRaisesRegex(frappe.ValidationError, "Choose our item for these lines"):
+			pi.submit()
+
+
+class TestReceivingAgainstOrders(FlowTestCase):
+	"""Received invoices billed against our purchase orders and receipts, and supplier item codes
+	remembered from what the reviewer chose."""
+
+	def setUp(self):
+		TestReceiving.default_branch_of_test_company(self)
+		self.cable = _item(f"{PREFIX} Cable", "Cable")
+
+	def received(self, lines, **document):
+		"""An E Invoice Received record as receive() stores one, without asking Flick."""
+		identifier = f"SUP-{frappe.generate_hash(length=8)}"
+		document = {
+			"document_identifier": identifier,
+			"document_type": "380",
+			"issue_date": str(today()),
+			"document_currency": "AED",
+			"invoice_lines": lines,
+			**document,
+		}
+		return (
+			frappe.get_doc(
+				{
+					"doctype": "E Invoice Received",
+					"document_id": frappe.generate_hash(length=24),
+					"company": self.fx.company.name,
+					"status": "New",
+					"document_identifier": identifier,
+					"document_type": "380",
+					"issue_date": today(),
+					"supplier": self.fx.supplier,
+					"currency": "AED",
+					"document_json": json.dumps(document),
+				}
+			)
+			.insert()
+			.name
+		)
+
+	def line(self, id, qty, rate, code, **extra):
+		return {
+			"id": str(id),
+			"name": f"Supplier's line {id}",
+			"quantity": str(qty),
+			"uom": "H87",
+			"unit_price": f"{rate:.2f}",
+			"tax_category": "S",
+			"tax_percentage": "5",
+			"supplier_item_code": code,
+			**extra,
+		}
+
+	def purchase_order(self, lines):
+		po = frappe.get_doc(
+			{
+				"doctype": "Purchase Order",
+				"company": self.fx.company.name,
+				"supplier": self.fx.supplier,
+				"transaction_date": today(),
+				"schedule_date": add_days(today(), 7),
+				"currency": "AED",
+				"conversion_rate": 1,
+				# Some sites number orders by cost centre.
+				"cost_center": self.fx.company.cost_center,
+				"items": [
+					{"item_code": item, "qty": qty, "rate": rate, "schedule_date": add_days(today(), 7)}
+					for item, qty, rate in lines
+				],
+				**_branch_of(self.fx.company, "Purchase Order"),
+			}
+		)
+		po.flags.ignore_mandatory = True
+		po.insert()
+		po.submit()
+		return po
+
+	def purchase_receipt(self, po, **values):
+		pr = make_purchase_receipt(po.name)
+		pr.update({"cost_center": self.fx.company.cost_center, **values})
+		pr.flags.ignore_mandatory = True
+		pr.insert()
+		pr.submit()
+		return pr
+
+	def notes(self, name):
+		return frappe.db.get_value("E Invoice Received", name, "notes") or ""
+
+	def test_invoice_quoting_our_order_bills_it(self):
+		po = self.purchase_order([(self.fx.phone, 2, 100), (self.cable, 3, 10)])
+		name = self.received(
+			[
+				self.line(1, 2, 100, "SUP-PHONE"),
+				# A code we don't know yet, on the order line the supplier names.
+				self.line(2, 3, 10, "CBL-9", order_line_reference=f"{po.name}-2"),
+			],
+			order_reference={"purchase_order_id": po.name},
+		)
+		pi = frappe.get_doc("Purchase Invoice", inbound.create_purchase_invoice(name))
+		self.assertEqual(
+			[(row.item_code, row.purchase_order, row.po_detail, row.qty) for row in pi.items],
+			[(self.fx.phone, po.name, po.items[0].name, 2), (self.cable, po.name, po.items[1].name, 3)],
+		)
+		self.assertEqual(pi.items[1].einvoice_supplier_item_code, "CBL-9")
+		self.assertTrue(self.notes(name).startswith(f"Made from Purchase Order {po.name}."))
+
+		pi.submit()
+		self.assertEqual(frappe.db.get_value("Purchase Order", po.name, "per_billed"), 100)
+		# The reviewer accepted CBL-9 as our cable: the next invoice matches it by itself.
+		self.assertEqual(inbound._match_item({"supplier_item_code": "CBL-9"}, self.fx.supplier), self.cable)
+		comment = frappe.get_all("Comment", filters={"reference_name": name, "comment_type": "Info"}, pluck="content")
+		self.assertIn(f"CBL-9 is {self.cable}", " ".join(comment))
+
+	def test_invoice_quoting_their_delivery_note_bills_our_receipt(self):
+		po = self.purchase_order([(self.fx.phone, 2, 100)])
+		pr = self.purchase_receipt(po, supplier_delivery_note=f"DN-{frappe.generate_hash(length=6)}")
+		name = self.received(
+			[self.line(1, 2, 100, "SUP-PHONE")],
+			other_references={"despatch_document_reference": pr.supplier_delivery_note},
+		)
+		pi = frappe.get_doc("Purchase Invoice", inbound.create_purchase_invoice(name))
+		[row] = pi.items
+		self.assertEqual((row.purchase_receipt, row.pr_detail, row.po_detail), (pr.name, pr.items[0].name, po.items[0].name))
+		self.assertTrue(self.notes(name).startswith(f"Made from Purchase Receipt {pr.name}."))
+
+	def test_order_quoted_by_number_once_received_bills_the_receipt(self):
+		po = self.purchase_order([(self.fx.phone, 2, 100)])
+		pr = self.purchase_receipt(po)
+		name = self.received([self.line(1, 2, 100, "SUP-PHONE")], order_reference={"purchase_order_id": po.name})
+		pi = frappe.get_doc("Purchase Invoice", inbound.create_purchase_invoice(name))
+		self.assertEqual(pi.items[0].purchase_receipt, pr.name)
+
+	def test_differences_from_our_order_are_left_to_the_reviewer(self):
+		po = self.purchase_order([(self.fx.phone, 2, 100), (self.cable, 3, 10)])
+		name = self.received(
+			[
+				self.line(1, 5, 120, "SUP-PHONE"),  # more, and dearer, than we ordered
+				self.line(2, 3, 9, "CBL-9", order_line_reference="2"),  # cheaper
+				self.line(3, 1, 50, "NOPE"),  # not on our order at all
+			],
+			order_reference={"purchase_order_id": po.name},
+			invoice_totals={"payable_amount": "710.85"},  # (600 + 27 + 50) plus 5% VAT
+		)
+		same_rate = frappe.db.get_single_value("Buying Settings", "maintain_same_rate")
+		frappe.db.set_single_value("Buying Settings", "maintain_same_rate", 0)
+		try:
+			pi = frappe.get_doc("Purchase Invoice", inbound.create_purchase_invoice(name))
+		finally:
+			frappe.db.set_single_value("Buying Settings", "maintain_same_rate", same_rate)
+		self.assertEqual(
+			[(row.item_code, row.qty, row.rate, bool(row.purchase_order)) for row in pi.items],
+			[(self.fx.phone, 2, 100, True), (self.cable, 3, 9, True), (self.fx.item, 1, 50, False)],
+		)
+		notes = self.notes(name)
+		self.assertIn("Line 1: bills 5.0, but 2.0 wait to be billed", notes)
+		self.assertIn("Line 1: the supplier charges 120.0, more than the 100.0", notes)
+		self.assertIn("Line 2: the supplier charges 9.0, less than the 10.0", notes)
+		self.assertIn("Line 3 (Supplier's line 3) is on none of the receipts or orders it quotes.", notes)
+		self.assertIn("The draft totals", notes)
+
+	def test_line_reviewed_to_our_item_is_remembered(self):
+		name = self.received([self.line(1, 1, 40, "NEW-77"), self.line(2, 1, 50, "NOPE")])
+		pi = frappe.get_doc("Purchase Invoice", inbound.create_purchase_invoice(name))
+		self.assertEqual([row.item_code for row in pi.items], [self.fx.item, self.fx.item])
+		pi.items[0].item_code = self.cable  # the reviewer knows what NEW-77 is
+		pi.remove(pi.items[1])  # and that NOPE is not ours to book
+		pi.save()
+		pi.submit()
+		self.assertEqual(inbound._match_item({"supplier_item_code": "NEW-77"}, self.fx.supplier), self.cable)
+		# A line taken off the invoice teaches nothing.
+		self.assertFalse(frappe.db.exists("Item Supplier", {"supplier": self.fx.supplier, "supplier_part_no": "NOPE"}))
+
+	def test_placeholder_item_is_on_every_site(self):
+		name = ensure_placeholder_item()
+		self.assertEqual(ensure_placeholder_item(), name, "made once")
+		self.assertEqual(
+			frappe.db.get_value("Item", name, ["is_sales_item", "is_stock_item", "is_purchase_item"]),
+			(0, 0, 1),
+		)
+		self.assertEqual(inbound.placeholder_item(), name)
+
+	def test_without_a_setting_lines_wait_on_the_apps_placeholder(self):
+		placeholder = ensure_placeholder_item()
+		self.settings(purchase_item=None)
+		try:
+			name = self.received([self.line(1, 1, 50, "NOPE")])
+			pi = frappe.get_doc("Purchase Invoice", inbound.create_purchase_invoice(name))
+		finally:
+			self.settings(purchase_item=self.fx.item)
+		self.assertEqual([row.item_code for row in pi.items], [placeholder])
+		with self.assertRaisesRegex(frappe.ValidationError, "Choose our item for these lines"):
+			pi.submit()
+
+	def test_with_no_placeholder_at_all_lines_keep_no_item(self):
+		self.settings(purchase_item=None)
+		try:
+			name = self.received([self.line(1, 1, 50, "NOPE")])
+			with patch.object(inbound, "placeholder_item", return_value=None):
+				try:
+					pi = frappe.get_doc("Purchase Invoice", inbound.create_purchase_invoice(name))
+				except frappe.ValidationError as e:
+					# This site drops lines without an item code as they save (a blank-row clean-up):
+					# the draft is refused rather than made without the supplier's line.
+					self.assertIn("removes purchase invoice lines without an item code", str(e))
+					return
+		finally:
+			self.settings(purchase_item=self.fx.item)
+		[row] = pi.items
+		self.assertEqual(
+			(row.item_code, row.item_name, row.expense_account),
+			(None, "Supplier's line 1", frappe.get_cached_value("Company", self.fx.company.name, "default_expense_account")),
+		)
+
+	def test_a_later_choice_moves_a_remembered_code(self):
+		gadget = _item(f"{PREFIX} Gadget", "Gadget")
+		self.assertEqual(inbound._remember(self.fx.supplier, "GAD-1", gadget), f"GAD-1 is {gadget}")
+		self.assertIsNone(inbound._remember(self.fx.supplier, "GAD-1", gadget))
+		self.assertEqual(inbound._remember(self.fx.supplier, "GAD-1", self.cable), f"GAD-1 is {self.cable} (was {gadget})")
+		self.assertEqual(inbound._match_item({"supplier_item_code": "GAD-1"}, self.fx.supplier), self.cable)
+
+	def test_order_line_numbers(self):
+		orders = {"PUR-ORD-2026-00012"}
+		self.assertEqual(inbound._order_line("3", orders), (None, 3))
+		self.assertEqual(inbound._order_line("PUR-ORD-2026-00012-3", orders), ("PUR-ORD-2026-00012", 3))
+		self.assertEqual(inbound._order_line("PUR-ORD-2026-00012 / 10", orders), ("PUR-ORD-2026-00012", 10))
+		self.assertIsNone(inbound._order_line("PUR-ORD-2026-00012", orders))  # the order alone names no line
+		self.assertIsNone(inbound._order_line("LINE-A", orders))
 
 
 class TestGuidance(FlowTestCase):

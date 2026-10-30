@@ -2,6 +2,7 @@ from pathlib import Path
 
 import frappe
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+from frappe.utils.nestedset import get_root_of
 
 from flick_einvoicing.custom_fields import get_custom_fields
 from flick_einvoicing.einvoice import code_lists
@@ -18,6 +19,7 @@ def after_install():
 	sync_custom_fields()
 	ensure_uom_code_list()
 	ensure_dashboard()
+	ensure_placeholder_item()
 
 
 def ensure_doctypes():
@@ -39,6 +41,49 @@ def after_migrate():
 	sync_custom_fields()
 	ensure_uom_code_list()
 	ensure_dashboard()
+	ensure_placeholder_item()
+
+
+def ensure_placeholder_item() -> str | None:
+	"""The item a received e-invoice line waits on until someone picks ours, on every site: never
+	sold or stocked, and no purchase invoice is submitted while a line is on it. Sites that number
+	items themselves give it their own name, so the name is kept as a default."""
+	from flick_einvoicing.einvoice.inbound import PLACEHOLDER_CODE, PLACEHOLDER_KEY, placeholder_item
+
+	name = placeholder_item() or frappe.db.get_value("Item", {"item_code": PLACEHOLDER_CODE})
+	if name:
+		frappe.db.set_default(PLACEHOLDER_KEY, name)
+		if frappe.db.get_value("Item", name, "is_sales_item"):
+			frappe.db.set_value("Item", name, "is_sales_item", 0)
+		return name
+	frappe.db.savepoint("flick_placeholder")
+	try:
+		item = frappe.get_doc(
+			{
+				"doctype": "Item",
+				"item_code": PLACEHOLDER_CODE,
+				"item_name": "Unmatched e-invoice line",
+				"description": "Holds a line of a received e-invoice that no item of ours matched, until someone "
+				"picks ours. Never sold or stocked; a purchase invoice can't be submitted while a line is on it.",
+				# Services where there is such a group, else the root: never a group of the client's goods.
+				"item_group": frappe.db.get_value("Item Group", {"name": "Services", "is_group": 0})
+				or get_root_of("Item Group"),
+				"stock_uom": "Nos",
+				"is_stock_item": 0,
+				"is_sales_item": 0,
+				"is_purchase_item": 1,
+				"include_item_in_manufacturing": 0,
+			}
+		)
+		item.flags.ignore_mandatory = True  # some sites ask items for fields of their own
+		item.insert(ignore_permissions=True)
+	except Exception:
+		# Never stop a migrate over it: unmatched lines then stay lines without an item.
+		frappe.db.rollback(save_point="flick_placeholder")
+		frappe.log_error("E-invoicing: could not create the item for unmatched lines")
+		return None
+	frappe.db.set_default(PLACEHOLDER_KEY, item.name)
+	return item.name
 
 
 def before_uninstall():

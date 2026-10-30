@@ -1,20 +1,28 @@
 """Invoices suppliers send this participant over Peppol.
 
 Each one lands as an E Invoice Received record, with Flick's PDF and UBL attached. A draft
-Purchase Invoice can then be made from it; what can't be matched (supplier, items, UOMs) is
-listed on the record for whoever reviews the draft. Nothing here submits anything.
+Purchase Invoice can then be made from it, from our Purchase Receipts or Purchase Order when the
+supplier quotes them. A line no item matches goes on a placeholder item (the company's Item for
+Unmatched Lines, else the app's own), and the invoice can't be submitted until someone picks our
+item for it; with no placeholder at all, it stays a line without an item, booked as an expense,
+where the site allows that. What can't be matched
+(supplier, items, UOMs, prices) is listed on the record for whoever reviews the draft. Nothing here submits anything. Submitting the reviewed
+invoice remembers which of our items each supplier code turned out to be.
 """
 
 import json
 
 import frappe
-from frappe.utils import cstr, flt, getdate, today
+from frappe.utils import cint, cstr, flt, getdate, now, today
 
 from flick_einvoicing.einvoice import codes
 from flick_einvoicing.providers import get_client
 from flick_einvoicing.providers.flick import INCOMING
 
 RECEIVED = "E Invoice Received"
+# The app's own item for lines no item of ours matches; install.ensure_placeholder_item makes it.
+PLACEHOLDER_CODE = "E-INVOICE-UNMATCHED"
+PLACEHOLDER_KEY = "flick_einvoicing_unmatched_item"
 RETURN_TYPES = {codes.CREDIT_NOTE, codes.CREDIT_NOTE_OUT_OF_SCOPE, codes.SELF_BILLED_CREDIT_NOTE}
 
 
@@ -92,8 +100,9 @@ def match_supplier(peppol_id: str | None, vat: str | None) -> str | None:
 
 
 def create_purchase_invoice(name: str) -> str:
-	"""Draft a Purchase Invoice from a received document. The draft is for review: it is never
-	submitted here."""
+	"""Draft a Purchase Invoice from a received document. When the supplier quotes our receipt,
+	their delivery note or our purchase order, the draft is made from those, so they show as
+	billed. The draft is for review: it is never submitted here."""
 	record = frappe.get_doc(RECEIVED, name)
 	if record.purchase_invoice:
 		return record.purchase_invoice
@@ -105,18 +114,29 @@ def create_purchase_invoice(name: str) -> str:
 
 	is_return = cstr(document.get("document_type")) in RETURN_TYPES
 	sign = -1 if is_return else 1
-	pi = frappe.new_doc("Purchase Invoice")
+	currency = document.get("document_currency") or record.currency
+	pi = None if is_return else _from_receipts_and_orders(record, document, currency, notes)
+	mapped = pi is not None
+	ordered = list(pi.items) if mapped else []  # our receipt and order lines; each is billed once
+	if mapped:
+		pi.set("items", [])
+	else:
+		pi = frappe.new_doc("Purchase Invoice")
 	pi.company = record.company
 	pi.supplier = record.supplier
 	pi.bill_no = record.document_identifier
 	pi.bill_date = record.issue_date
 	pi.posting_date = today()
 	pi.set_posting_time = 1
-	pi.currency = document.get("document_currency") or record.currency
+	pi.currency = currency
 	if pi.currency != "AED" and document.get("currency_exchange_rate"):
 		pi.conversion_rate = flt(document["currency_exchange_rate"])
 	if document.get("due_date") and not is_return:
 		pi.due_date = getdate(document["due_date"])
+		if mapped:
+			# Our order's payment terms came with it; the supplier's due date stands instead.
+			pi.payment_terms_template = None
+			pi.set("payment_schedule", [])
 	pi.einvoice_received = record.name
 	if pi.meta.has_field("cost_center") and not pi.get("cost_center"):
 		# A draft for review; some sites won't even number one without it.
@@ -131,48 +151,78 @@ def create_purchase_invoice(name: str) -> str:
 				"The original purchase invoice this credit note refers to was not found; set Return Against."
 			)
 
+	lines = document.get("invoice_lines") or []
+	if not lines:
+		frappe.throw(f"{name} has no invoice lines.")
 	item_templates = _item_templates_by_category(settings)
-	for line in document.get("invoice_lines") or []:
-		item_code, how = _match_item(line, record.supplier, settings)
-		if not item_code:
-			notes.append(f"Line {line.get('id')}: no item matched and no Item for Unmatched Lines is set.")
-			continue
-		if how:
-			notes.append(f"Line {line.get('id')} ({line.get('name')}): {how}.")
-		row = {
-			"item_code": item_code,
-			"item_name": cstr(line.get("name"))[:140] or None,
-			"description": cstr(line.get("description") or line.get("name")) or None,
-			"qty": sign * flt(line.get("quantity")),
-			"rate": flt(line.get("unit_price")),
-		}
-		uom = _uom_for(line.get("uom"), settings)
-		if uom:
-			row["uom"] = uom
+	same_rate = cint(frappe.db.get_single_value("Buying Settings", "maintain_same_rate"))
+	quoted_order = cstr((document.get("order_reference") or {}).get("purchase_order_id")).strip()
+	placeholder = settings.get("purchase_item") or placeholder_item()
+	expense_account = frappe.get_cached_value("Company", record.company, "default_expense_account")
+	for line in lines:
+		label = f"Line {line.get('id')}"
+		item_code = _match_item(line, record.supplier)
+		row = _claim(ordered, line, item_code, quoted_order)
+		if row:
+			_bill(row, line, same_rate, settings, notes)
+			pi.append("items", row)
+		else:
+			if mapped:
+				notes.append(f"{label} ({line.get('name')}) is on none of the receipts or orders it quotes.")
+			if not item_code and placeholder:
+				notes.append(f"{label} ({line.get('name')}): no item matched; on {placeholder} until our item is chosen.")
+			elif not item_code:
+				notes.append(
+					f"{label} ({line.get('name')}): no item matched; kept without an item, booked to "
+					f"{expense_account or 'no account yet'}. Link our item if it is one."
+				)
+			row = pi.append(
+				"items",
+				{
+					"item_code": item_code or placeholder,
+					"item_name": cstr(line.get("name") or line.get("description"))[:140] or label,
+					"description": cstr(line.get("description") or line.get("name")) or None,
+					"qty": sign * flt(line.get("quantity")),
+					"rate": flt(line.get("unit_price")),
+				},
+			)
+			uom = _uom_for(line.get("uom"), settings)
+			if uom:
+				row.uom = uom
+			if not row.item_code:
+				# ERPNext books a line without an item as an expense: it needs a unit and an account.
+				row.uom = row.get("uom") or ("Nos" if frappe.db.exists("UOM", "Nos") else None)
+				row.stock_uom = row.uom
+				row.conversion_factor = 1
+				row.expense_account = expense_account
+				row.cost_center = pi.get("cost_center")
+		row.einvoice_supplier_item_code = cstr(line.get("supplier_item_code")) or None
 		category = line.get("tax_category")
-		if category and category != "S":
+		if category and category != "S" and not row.get("item_tax_template"):
 			template = item_templates.get(category)
 			if template:
-				row["item_tax_template"] = template
+				row.item_tax_template = template
 			else:
-				notes.append(
-					f"Line {line.get('id')}: VAT category {category} has no Item Tax Template mapped."
-				)
-		pi.append("items", row)
+				notes.append(f"{label}: VAT category {category} has no Item Tax Template mapped.")
 
-	if not pi.items:
-		frappe.throw(
-			"None of the lines could be matched to an item. Set an Item for Unmatched Lines in E Invoicing Settings."
-		)
-
-	if settings.get("purchase_taxes_template") and any(
-		(l.get("tax_category") == "S") for l in document.get("invoice_lines") or []
+	# A receipt or order brings its own taxes; otherwise the configured template does.
+	if (
+		not pi.get("taxes")
+		and settings.get("purchase_taxes_template")
+		and any((l.get("tax_category") == "S") for l in lines)
 	):
 		pi.taxes_and_charges = settings.purchase_taxes_template
 		pi.set_taxes()
 
 	pi.flags.ignore_mandatory = True  # a draft for review; ERPNext asks again on submit
-	pi.insert(ignore_permissions=True)
+	try:
+		pi.insert(ignore_permissions=True)
+	except Exception:
+		if len(pi.items) < len(lines):
+			_refuse_lost_lines(len(lines) - len(pi.items))
+		raise
+	if len(pi.items) < len(lines):
+		_refuse_lost_lines(len(lines) - len(pi.items))
 
 	totals = document.get("invoice_totals") or {}
 	expected = flt(totals.get("payable_amount") or totals.get("tax_inclusive_amount"))
@@ -189,6 +239,255 @@ def create_purchase_invoice(name: str) -> str:
 	return pi.name
 
 
+def placeholder_item() -> str | None:
+	"""The app's own item for unmatched lines, made on install and migrate."""
+	name = frappe.db.get_default(PLACEHOLDER_KEY)
+	return name if name and frappe.db.exists("Item", name) else None
+
+
+def _placeholders(company: str) -> set[str]:
+	return {frappe.db.get_value("E Invoicing Settings", company, "purchase_item"), placeholder_item()} - {None}
+
+
+def _refuse_lost_lines(lost: int):
+	# A site hook dropped lines without an item code as the draft saved (a blank-row clean-up).
+	# Refuse the draft rather than leave the supplier's lines out of it.
+	frappe.throw(
+		f"{lost} of the supplier's lines have no item of ours, and this site removes purchase invoice "
+		"lines without an item code as they are saved. Set an Item for Unmatched Lines in E Invoicing "
+		"Settings, or give the supplier's codes our items (Supplier Items on the item)."
+	)
+
+
+def _from_receipts_and_orders(record, document, currency: str, notes: list):
+	"""A draft made from the receipts and orders the supplier quotes, as Get Items From does in
+	the desk, or None when they quote none of ours that still waits to be billed."""
+	from erpnext.buying.doctype.purchase_order.purchase_order import (
+		make_purchase_invoice as from_order,
+	)
+	from erpnext.stock.doctype.purchase_receipt.purchase_receipt import (
+		make_purchase_invoice as from_receipt,
+	)
+
+	pi, used = None, []
+	for doctype, name in _purchase_sources(record, document):
+		if frappe.db.get_value(doctype, name, "currency") != currency:
+			notes.append(f"{doctype} {name} is not in {currency}, the invoice's currency; not used.")
+			continue
+		make = from_receipt if doctype == "Purchase Receipt" else from_order
+		try:
+			pi = make(name, target_doc=pi)
+		except frappe.ValidationError as e:
+			notes.append(f"{doctype} {name} could not be used: {cstr(e)}")
+			continue
+		used.append(f"{doctype} {name}")
+	if not used:
+		return None
+	notes.insert(0, f"Made from {', '.join(used)}.")
+	return pi
+
+
+def _purchase_sources(record, document) -> list[tuple[str, str]]:
+	"""Our Purchase Receipts and Purchase Orders this invoice bills, from what the supplier
+	quotes: our receipt number, their delivery note number, our order number. Receipts come
+	first; an order is used itself only while nothing has been received against it."""
+	waiting = {
+		"supplier": record.supplier,
+		"company": record.company,
+		"docstatus": 1,
+		"per_billed": ("<", 100),
+		"status": ("not in", ("Closed", "On Hold")),
+	}
+	other = document.get("other_references") or {}
+	receipts = []
+	receipt = cstr(other.get("receipt_document_reference")).strip()
+	if receipt:
+		receipts += frappe.get_all("Purchase Receipt", filters={"name": receipt, **waiting}, pluck="name")
+	for note in cstr(other.get("despatch_document_reference")).split(","):
+		if note.strip():
+			receipts += frappe.get_all(
+				"Purchase Receipt",
+				filters={"supplier_delivery_note": note.strip(), **waiting},
+				pluck="name",
+				order_by="posting_date, name",
+			)
+
+	quoted = [cstr((document.get("order_reference") or {}).get("purchase_order_id")).strip()]
+	quoted += [cstr(line.get("order_reference_id")).strip() for line in document.get("invoice_lines") or []]
+	quoted = list(dict.fromkeys(q for q in quoted if q))
+	found = set(frappe.get_all("Purchase Order", filters={"name": ("in", quoted), **waiting}, pluck="name")) if quoted else set()
+	orders = [order for order in quoted if order in found]
+	received = set()
+	if orders:
+		rows = frappe.get_all(
+			"Purchase Receipt Item",
+			filters={"purchase_order": ("in", orders), "docstatus": 1},
+			fields=["parent", "purchase_order"],
+			distinct=True,
+		)
+		received = {row.purchase_order for row in rows}
+		against = sorted({row.parent for row in rows})
+		if against:
+			receipts += frappe.get_all(
+				"Purchase Receipt", filters={"name": ("in", against), **waiting}, pluck="name", order_by="posting_date, name"
+			)
+	return [("Purchase Receipt", name) for name in dict.fromkeys(receipts)] + [
+		("Purchase Order", order) for order in orders if order not in received
+	]
+
+
+def _claim(ordered: list, line: dict, item_code: str | None, quoted_order: str):
+	"""Take the receipt or order line an invoice line bills, so none is billed twice: the order
+	line the supplier names, else the first one for the same item."""
+	order = cstr(line.get("order_reference_id")).strip() or quoted_order
+	named = _order_line(cstr(line.get("order_line_reference")), {row.get("purchase_order") for row in ordered} - {None})
+	found = None
+	if named:
+		in_order, number = named[0] or order, named[1]
+		found = next(
+			(
+				row
+				for row in ordered
+				if row.get("po_detail")
+				and (not in_order or row.purchase_order == in_order)
+				and frappe.db.get_value("Purchase Order Item", row.po_detail, "idx") == number
+			),
+			None,
+		)
+	if not found and item_code:
+		found = next(
+			(
+				row
+				for row in ordered
+				if row.item_code == item_code and (not order or row.get("purchase_order") in (order, None))
+			),
+			None,
+		)
+	if found:
+		ordered.remove(found)
+	return found
+
+
+def _order_line(reference: str, orders: set[str]) -> tuple[str | None, int] | None:
+	"""The line number on one of our orders that the supplier wrote: "3", or the order number
+	followed by it, like "PUR-ORD-2026-00012-3". None when it is neither."""
+	reference = reference.strip()
+	if reference.isdigit():
+		return None, int(reference)
+	for order in orders:
+		if reference.startswith(order):
+			rest = reference[len(order) :].strip(" -/#:.")
+			if rest.isdigit():
+				return order, int(rest)
+	return None
+
+
+def _bill(row, line: dict, same_rate: int, settings, notes: list):
+	"""Bill one of our receipt or order lines for what the supplier invoices on it, never for
+	more than waits to be billed there: ERPNext refuses to save that, so the reviewer decides."""
+	label = f"Line {line.get('id')}"
+	source = row.get("purchase_receipt") or row.get("purchase_order")
+	qty, rate = flt(line.get("quantity")), flt(line.get("unit_price"))
+	if qty > flt(row.qty):
+		notes.append(f"{label}: bills {qty}, but {flt(row.qty)} wait to be billed on {source}; the draft bills {flt(row.qty)}.")
+	else:
+		row.qty = qty
+	uom = _uom_for(line.get("uom"), settings)
+	if uom and uom != row.uom:
+		notes.append(f"{label}: the supplier bills in {uom}, {source} is in {row.uom}; check the quantity.")
+	if abs(rate - flt(row.rate)) < 0.005:
+		return
+	if same_rate:
+		notes.append(f"{label}: the supplier charges {rate}, {source} {flt(row.rate)}; kept ours, as Buying Settings keep the same rate.")
+	elif rate > flt(row.rate):
+		notes.append(f"{label}: the supplier charges {rate}, more than the {flt(row.rate)} on {source}; kept ours.")
+	else:
+		notes.append(f"{label}: the supplier charges {rate}, less than the {flt(row.rate)} on {source}; billed theirs.")
+		row.update({"rate": rate, "price_list_rate": rate, "discount_percentage": 0, "discount_amount": 0})
+
+
+def check_unmatched_lines(doc, method=None):
+	"""No purchase invoice is submitted while a line is on a placeholder: it only holds a received
+	line until someone picks our item. The app's own placeholder is held back on every purchase
+	invoice; a company's chosen one, on those made from received e-invoices."""
+	held = {placeholder_item()} - {None}
+	if doc.get("einvoice_received"):
+		held = _placeholders(doc.company)
+	waiting = [row for row in doc.items if row.item_code in held]
+	if waiting:
+		rows = "".join(
+			f"<li>Row {row.idx}: {frappe.utils.escape_html(row.item_name or row.description or '')}</li>"
+			for row in waiting
+		)
+		frappe.throw(
+			f"Choose our item for these lines before submitting; {waiting[0].item_code} only holds them until then:<ul>{rows}</ul>",
+			title="Lines still to match",
+		)
+
+
+def remember_item_codes(doc, method=None):
+	"""On submitting a purchase invoice made from a received e-invoice, remember which of our
+	items each supplier code turned out to be, so the next invoice matches by itself. The
+	reviewer's choice replaces an earlier one. Never stops the submit."""
+	if not doc.get("einvoice_received"):
+		return
+	held = _placeholders(doc.company)
+	learned = []
+	for row in doc.items:
+		code = cstr(row.get("einvoice_supplier_item_code")).strip()
+		if not code or not row.item_code or row.item_code in held:
+			continue
+		frappe.db.savepoint("flick_remember")
+		try:
+			change = _remember(doc.supplier, code, row.item_code)
+		except Exception:
+			frappe.db.rollback(save_point="flick_remember")
+			frappe.log_error(f"E-invoice: remembering {doc.supplier}'s code {code} as {row.item_code}")
+			continue
+		if change:
+			learned.append(change)
+	if learned and frappe.db.exists(RECEIVED, doc.einvoice_received):
+		frappe.get_doc(RECEIVED, doc.einvoice_received).add_comment(
+			"Info", "Remembered for the next invoice: " + "; ".join(learned)
+		)
+
+
+def _remember(supplier: str, code: str, item_code: str) -> str | None:
+	"""Point the supplier's code at our item, in the item's Supplier Items. Returns what changed."""
+	rows = frappe.get_all(
+		"Item Supplier",
+		filters={"parenttype": "Item", "supplier": supplier, "supplier_part_no": code},
+		fields=["name", "parent"],
+	)
+	if any(row.parent == item_code for row in rows):
+		return None
+	for row in rows:
+		frappe.db.delete("Item Supplier", {"name": row.name})
+		frappe.clear_document_cache("Item", row.parent)
+	last = frappe.get_all(
+		"Item Supplier", filters={"parenttype": "Item", "parent": item_code}, pluck="idx", order_by="idx desc", limit=1
+	)
+	stamp = now()
+	frappe.get_doc(
+		{
+			"doctype": "Item Supplier",
+			"parenttype": "Item",
+			"parentfield": "supplier_items",
+			"parent": item_code,
+			"idx": (last[0] if last else 0) + 1,
+			"supplier": supplier,
+			"supplier_part_no": code,
+			"owner": frappe.session.user,
+			"modified_by": frappe.session.user,
+			"creation": stamp,
+			"modified": stamp,
+		}
+	).db_insert()
+	frappe.clear_document_cache("Item", item_code)
+	was = f" (was {', '.join(row.parent for row in rows)})" if rows else ""
+	return f"{code} is {item_code}{was}"
+
+
 def _original_purchase_invoice(supplier: str, document: dict) -> str | None:
 	for reference in document.get("document_references") or []:
 		bill_no = reference.get("document_identifier")
@@ -201,28 +500,25 @@ def _original_purchase_invoice(supplier: str, document: dict) -> str | None:
 	return None
 
 
-def _match_item(line: dict, supplier: str, settings) -> tuple[str | None, str | None]:
+def _match_item(line: dict, supplier: str) -> str | None:
 	"""Find our item for a received line: the supplier's code, then a GTIN, then our own code
-	if the supplier sent it. Falls back to the configured catch-all item."""
+	if the supplier sent it. Never by name: theirs and ours rarely agree."""
 	supplier_code = cstr(line.get("supplier_item_code"))
 	if supplier_code:
 		name = frappe.db.get_value(
 			"Item Supplier", {"supplier": supplier, "supplier_part_no": supplier_code}, "parent"
 		)
 		if name:
-			return name, None
+			return name
 	gtin = cstr(line.get("standard_item_id"))
 	if gtin:
 		name = frappe.db.get_value("Item Barcode", {"barcode": gtin}, "parent")
 		if name:
-			return name, None
+			return name
 	buyer_code = cstr(line.get("buyers_item_code"))
 	if buyer_code and frappe.db.exists("Item", buyer_code):
-		return buyer_code, None
-	fallback = settings.get("purchase_item")
-	if fallback:
-		return fallback, f"booked to {fallback}, no item matched"
-	return None, None
+		return buyer_code
+	return None
 
 
 def _uom_for(code: str | None, settings) -> str | None:
