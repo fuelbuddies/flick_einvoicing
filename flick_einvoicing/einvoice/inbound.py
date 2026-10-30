@@ -159,6 +159,7 @@ def create_purchase_invoice(name: str) -> str:
 	quoted_order = cstr((document.get("order_reference") or {}).get("purchase_order_id")).strip()
 	placeholder = settings.get("purchase_item") or placeholder_item()
 	expense_account = frappe.get_cached_value("Company", record.company, "default_expense_account")
+	billed = []  # (row, line): each draft row and the supplier's line it bills
 	for line in lines:
 		label = f"Line {line.get('id')}"
 		item_code = _match_item(line, record.supplier)
@@ -197,6 +198,7 @@ def create_purchase_invoice(name: str) -> str:
 				row.expense_account = expense_account
 				row.cost_center = pi.get("cost_center")
 		row.einvoice_supplier_item_code = cstr(line.get("supplier_item_code")) or None
+		billed.append((row, line))
 		category = line.get("tax_category")
 		if category and category != "S" and not row.get("item_tax_template"):
 			template = item_templates.get(category)
@@ -224,11 +226,19 @@ def create_purchase_invoice(name: str) -> str:
 	if len(pi.items) < len(lines):
 		_refuse_lost_lines(len(lines) - len(pi.items))
 
+	for row, line in billed:
+		_note_rounded_price(row, line, notes)
 	totals = document.get("invoice_totals") or {}
 	expected = flt(totals.get("payable_amount") or totals.get("tax_inclusive_amount"))
 	if expected and abs(abs(flt(pi.grand_total)) - expected) > 0.01:
 		notes.append(
 			f"The draft totals {abs(flt(pi.grand_total))}, the supplier's invoice {expected}. Check rates and taxes."
+		)
+	vat = totals.get("tax_amount")
+	if vat not in (None, "") and abs(abs(flt(pi.total_taxes_and_charges)) - flt(vat)) > 0.01:
+		notes.append(
+			f"VAT on the draft is {abs(flt(pi.total_taxes_and_charges))}, on the supplier's invoice {flt(vat)}: "
+			"claim only what the invoice states."
 		)
 
 	record.purchase_invoice = pi.name
@@ -237,6 +247,23 @@ def create_purchase_invoice(name: str) -> str:
 	record.flags.ignore_permissions = True
 	record.save()
 	return pi.name
+
+
+def _note_rounded_price(row, line: dict, notes: list):
+	"""Say so when the supplier's price has more decimals than the site keeps for rates: ERPNext
+	rounds it, so the line, its VAT and the total come out different from the invoice."""
+	price = cstr(line.get("unit_price")).strip()
+	decimals = len(price.partition(".")[2].rstrip("0"))
+	precision = row.precision("rate")
+	if decimals <= precision or abs(flt(row.rate) - flt(price, precision)) > 1e-9:
+		return  # not rounded, or the rate is ours rather than theirs
+	expected = line.get("line_extension_amount")
+	if expected in (None, "") or abs(flt(row.amount) - flt(expected)) < 0.01:
+		return
+	notes.append(
+		f"Line {line.get('id')}: the supplier's price {flt(price)} has more decimals than this site keeps for "
+		f"rates ({precision}), so the line comes to {flt(row.amount)} against the supplier's {flt(expected)}."
+	)
 
 
 def placeholder_item() -> str | None:

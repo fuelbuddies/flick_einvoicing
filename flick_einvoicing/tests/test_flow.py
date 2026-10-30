@@ -1476,6 +1476,18 @@ class TestReceivingAgainstOrders(FlowTestCase):
 			(None, "Supplier's line 1", frappe.get_cached_value("Company", self.fx.company.name, "default_expense_account")),
 		)
 
+	def test_price_with_more_decimals_than_the_site_keeps_is_explained(self):
+		# 1000 at 0.123456 is 123.46; a site keeping 2 or 3 decimals for rates can't say that.
+		name = self.received(
+			[self.line(1, 1000, 0.123456, "SUP-PHONE", unit_price="0.123456", line_extension_amount="123.46")],
+			invoice_totals={"payable_amount": "129.63", "tax_amount": "6.17"},
+		)
+		inbound.create_purchase_invoice(name)
+		notes = self.notes(name)
+		self.assertIn("Line 1: the supplier's price 0.123456 has more decimals than this site keeps", notes)
+		self.assertIn("against the supplier's 123.46", notes)
+		self.assertIn("on the supplier's invoice 6.17: claim only what the invoice states", notes)
+
 	def test_a_later_choice_moves_a_remembered_code(self):
 		gadget = _item(f"{PREFIX} Gadget", "Gadget")
 		self.assertEqual(inbound._remember(self.fx.supplier, "GAD-1", gadget), f"GAD-1 is {gadget}")
