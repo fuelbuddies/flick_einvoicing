@@ -49,7 +49,7 @@ Skipped, with no submission: B2C invoices (customer type Individual, switchable)
 - **Flick workspace:** a dashboard on top. As of now: each UAE company (not set up, setup steps left, or enabled with its environment, when status updates were last read and when an invoice was last sent, flagged when updates are over half an hour late) and the latest submissions that need attention. For the chosen period (7, 30 or 90 days, or all time): the share Flick accepted, submissions by outcome, and how far FTA reporting and Peppol delivery got.
 - The dashboard is a Custom HTML Block built from `flick_einvoicing/dashboard/`. Custom HTML Blocks belong to no module, so migrate writes the block from those files each time: change the files, not the block on a site.
 - **Setup checklist:** above the E Invoicing Settings list, one row per UAE company with a Set up or Continue button; on each record, the steps still open, such as VAT templates with no tax treatment, and a warning when no sales tax template is Default.
-- **Invoice banner:** on Sales, POS and self-billed Purchase Invoices. A draft shows what it lacks as last saved (this app's checks; Check with Flick asks Flick too) or that it is ready; a submitted invoice shows its e-invoice status and next step; others say why they are not e-invoiced.
+- **Invoice banner:** on Sales, POS and self-billed Purchase Invoices. A draft shows what it lacks as last saved (this app's checks) or that it is ready, with a Check with Flick link that has Flick validate it under a throwaway number (nothing filed); a submitted invoice shows its e-invoice status, next step and, when Flick failed it, the cause; others say why they are not e-invoiced.
 
 ### Code lists
 

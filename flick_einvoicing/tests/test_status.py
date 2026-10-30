@@ -87,6 +87,25 @@ class TestSettledRule(TestCase):
 		self.assertIn("support", st.next_action(s, origins={"region"}))
 		self.assertNotIn("support", st.next_action(s, origins={"authority"}))
 
+	def test_known_cause_is_said_plainly(self):
+		s = sub(
+			status=st.FAILED,
+			reporting_status="failed",
+			reporting_settled=1,
+			exchange_status="failed",
+			exchange_settled=1,
+		)
+		text = st.next_action(s, origins={"region"}, codes={"RECIPIENT_NOT_ON_NETWORK"})
+		self.assertTrue(text.startswith("Flick could not find the recipient's Peppol ID"))
+		self.assertIn("Correct the Peppol ID on the customer or supplier, then Resubmit.", text)
+		self.assertIn("support", text)
+		self.assertIn("Fix the cause below, then Resubmit.", st.next_action(s, codes={"SOMETHING_ELSE"}))
+		# Delivery still open: the cause, then wait.
+		s.exchange_status, s.exchange_settled = "processing", 0
+		text = st.next_action(s, codes={"RECIPIENT_NOT_ON_NETWORK"})
+		self.assertTrue(text.startswith("Flick could not find the recipient's Peppol ID"))
+		self.assertIn("Wait for it to finish", text)
+
 	def test_reported_but_undelivered_needs_a_credit_note(self):
 		s = sub(
 			status=st.FAILED,

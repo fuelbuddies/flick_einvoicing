@@ -31,8 +31,42 @@ if (!flick_einvoicing.invoice_form_registered) {
 		});
 	};
 
+	// Ours, then Flick's full validation, on the invoice as saved. Nothing is filed.
+	const check_with_flick = (frm) => {
+		if (frm.is_dirty()) {
+			frappe.msgprint(__("Save the invoice first: the check runs on the invoice as saved."));
+			return;
+		}
+		frappe
+			.call({
+				method: "flick_einvoicing.api.check_invoice",
+				args: { doctype: frm.doctype, name: frm.doc.name },
+				freeze: true,
+				freeze_message: __("Validating with Flick..."),
+			})
+			.then(({ message }) => show_check(message));
+	};
+
+	// Whether the banner's details are open: a per-browser choice, closed when storage is blocked.
+	const OPEN_KEY = "flick_einvoicing.banner_open";
+	const details_open = () => {
+		try {
+			return localStorage.getItem(OPEN_KEY) === "1";
+		} catch (e) {
+			return false;
+		}
+	};
+	const keep_details_open = (open) => {
+		try {
+			localStorage.setItem(OPEN_KEY, open ? "1" : "0");
+		} catch (e) {
+			// private window or blocked storage: the banner just starts closed next time
+		}
+	};
+
 	// What e-invoicing will do with the invoice, or did, and what it still lacks: drafts as last
-	// saved, checked by this app only (Check with Flick asks Flick too).
+	// saved, checked by this app only (Check with Flick asks Flick too). One line; the details
+	// open under it on request and show on hover while closed.
 	const show_banner = (frm) => {
 		const $messages = $(frm.layout.message);
 		$messages.find(".flick-banner").remove();
@@ -41,15 +75,36 @@ if (!flick_einvoicing.invoice_form_registered) {
 		frappe.xcall("flick_einvoicing.api.invoice_banner", { doctype, name: docname }).then((banner) => {
 			if (!banner || frm.docname !== docname) return;
 			const esc = frappe.utils.escape_html;
-			const lines = (banner.lines || []).map((line) => `<li>${esc(line)}</li>`);
-			if (banner.more) lines.push(`<li>${__("and {0} more", [banner.more])}</li>`);
-			const $banner = $(`<div class="form-message ${banner.color} flick-banner">
-				<div><b>${esc(banner.title)}</b>${banner.action ? ` <a href="#" class="flick-banner-action ml-1" style="text-decoration: underline">${esc(banner.action.label)}</a>` : ""}</div>
-				${lines.length ? `<ul class="mb-0 mt-1 pl-4">${lines.join("")}</ul>` : ""}
+			const details = [...(banner.lines || [])];
+			if (banner.more) details.push(__("and {0} more", [banner.more]));
+			const open = details.length > 0 && details_open();
+			const $banner = $(`<div class="form-message ${banner.color} flick-banner" style="padding: 6px 12px">
+				<div class="flick-banner-line d-flex align-items-center" style="gap: 12px; min-width: 0">
+					<b class="ellipsis">${esc(banner.title)}</b>
+					${banner.action ? `<a href="#" class="flick-banner-action text-nowrap" style="text-decoration: underline">${esc(banner.action.label)}</a>` : ""}
+					${details.length ? `<a href="#" class="flick-banner-toggle text-nowrap ml-auto" role="button"></a>` : ""}
+				</div>
+				${details.length ? `<ul class="flick-banner-details mb-0 mt-1 pl-4">${details.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>` : ""}
 			</div>`);
+			const set_open = (value) => {
+				$banner.find(".flick-banner-details").prop("hidden", !value);
+				$banner
+					.find(".flick-banner-toggle")
+					.attr("aria-expanded", String(value))
+					.text(value ? `${__("Hide details")} ▴` : `${__("Details")} ▾`);
+				$banner.find(".flick-banner-line").attr("title", value ? null : details.join("\n"));
+			};
+			set_open(open);
+			$banner.find(".flick-banner-toggle").on("click", (event) => {
+				event.preventDefault();
+				const value = $banner.find(".flick-banner-details").prop("hidden");
+				set_open(value);
+				keep_details_open(value);
+			});
 			$banner.find(".flick-banner-action").on("click", (event) => {
 				event.preventDefault();
-				frappe.set_route(...banner.action.route);
+				if (banner.action.check) check_with_flick(frm);
+				else frappe.set_route(...banner.action.route);
 			});
 			$messages.find(".flick-banner").remove();
 			$messages.append($banner).removeClass("hidden");
@@ -67,19 +122,7 @@ if (!flick_einvoicing.invoice_form_registered) {
 		refresh(frm) {
 			show_banner(frm);
 			if (frm.doc.docstatus === 0 && !frm.is_new()) {
-				frm.add_custom_button(
-					__("Check with Flick"),
-					() =>
-						frappe
-							.call({
-								method: "flick_einvoicing.api.check_invoice",
-								args: { doctype: frm.doctype, name: frm.doc.name },
-								freeze: true,
-								freeze_message: __("Validating with Flick..."),
-							})
-							.then(({ message }) => show_check(message)),
-					__("E-Invoice")
-				);
+				frm.add_custom_button(__("Check with Flick"), () => check_with_flick(frm), __("E-Invoice"));
 			}
 			if (!frm.doc.einvoice_submission) return;
 			frm.dashboard.add_indicator(

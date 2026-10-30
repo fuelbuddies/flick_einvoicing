@@ -29,6 +29,16 @@ TRACK_FAILED = "failed"
 # Error origins Flick says leave the true state unknown (contact support, never reissue).
 UNCERTAIN_ORIGINS = {"core", "region"}
 
+# Track failures whose cause the finance team can put right themselves: what happened, plainly,
+# and what to fix before resubmitting.
+CAUSES = {
+	"RECIPIENT_NOT_ON_NETWORK": (
+		"Flick could not find the recipient's Peppol ID on the Peppol network, so the invoice was not"
+		" delivered, and without delivery nothing is filed with the FTA.",
+		"Correct the Peppol ID on the customer or supplier",
+	),
+}
+
 
 # Where one track of an accepted document stands, for the workspace dashboard. A failed track
 # Flick has not settled is "retrying": still running, like one in progress.
@@ -117,7 +127,7 @@ def can_cancel_invoice(sub) -> tuple[bool, str]:
 	)
 
 
-def next_action(sub, origins: set[str] | None = None) -> str:
+def next_action(sub, origins: set[str] | None = None, codes: set[str] | None = None) -> str:
 	"""One plain sentence telling the finance team what to do now."""
 	status = sub.status
 	if status == QUEUED:
@@ -133,18 +143,21 @@ def next_action(sub, origins: set[str] | None = None) -> str:
 	if status == PROCESSING:
 		return "Accepted by Flick. Reporting and delivery are still running."
 
+	known = [CAUSES[code] for code in sorted(codes or ()) if code in CAUSES]
+	fix = known[0][1] if known else "Fix the cause below"
 	if unsettled_failure(sub):
-		return "Flick is still retrying. Do not reissue: that would file the same sale twice."
-	if numbers_released(sub):
-		text = "Neither reporting nor delivery succeeded, so Flick released the number. Fix the cause below, then Resubmit."
+		text = "Flick is still retrying. Do not reissue: that would file the same sale twice."
+	elif numbers_released(sub):
+		text = f"Neither reporting nor delivery succeeded, so Flick released the number. {fix}, then Resubmit."
 		if origins and origins & UNCERTAIN_ORIGINS:
 			text += " Flick marks this failure as uncertain: confirm with Flick support before resubmitting."
-		return text
-	if sub.reporting_status in REPORTING_DONE and sub.exchange_status == TRACK_FAILED:
-		return "Reported to the FTA but not delivered to the buyer. Do not reissue; sort out delivery with Flick, and correct with a credit note if needed."
-	if sub.exchange_status in EXCHANGE_DONE and sub.reporting_status == TRACK_FAILED:
-		return "Delivered to the buyer but FTA reporting failed. This needs review with Flick support. Do not reissue."
-	return "One track failed for good and the other is still running. Wait for it to finish."
+	elif sub.reporting_status in REPORTING_DONE and sub.exchange_status == TRACK_FAILED:
+		text = "Reported to the FTA but not delivered to the buyer. Do not reissue; sort out delivery with Flick, and correct with a credit note if needed."
+	elif sub.exchange_status in EXCHANGE_DONE and sub.reporting_status == TRACK_FAILED:
+		text = "Delivered to the buyer but FTA reporting failed. This needs review with Flick support. Do not reissue."
+	else:
+		text = "One track failed for good and the other is still running. Wait for it to finish."
+	return " ".join([*(what for what, _ in known), text])
 
 
 def parse_time(value: str | None) -> datetime | None:

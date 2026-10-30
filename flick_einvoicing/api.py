@@ -325,7 +325,9 @@ def _invoice_banner(invoice) -> dict | None:
 	if problems:
 		return {
 			"color": "orange",
-			"title": _("Not ready to e-invoice. Fix this before submitting:"),
+			"title": _("Not ready to e-invoice: {0} to fix before submitting.").format(
+				_("1 problem") if len(problems) == 1 else _("{0} problems").format(len(problems))
+			),
 			"lines": problems[:BANNER_LINES],
 			"more": max(len(problems) - BANNER_LINES, 0),
 		}
@@ -334,10 +336,18 @@ def _invoice_banner(invoice) -> dict | None:
 		if settings.submission_mode == "Batch"
 		else _("it goes to Flick when you submit it")
 	)
+	if settings.get("validate_before_submit"):
+		flick = _("This app's own checks pass. On submit, Flick validates it too and stops the submit if it finds a problem.")
+	else:
+		flick = _("This app's own checks pass. Flick validates it again when it is sent, after you submit.")
 	return {
 		"color": "green",
 		"title": _("Ready to e-invoice: {0}.").format(when),
-		"lines": [_("Check with Flick, under E-Invoice, also runs Flick's own validation.")],
+		"lines": [
+			flick,
+			_("Check with Flick asks Flick for its answer now, before you submit. Nothing is filed or delivered."),
+		],
+		"action": {"label": _("Check with Flick"), "check": True},
 	}
 
 
@@ -356,7 +366,8 @@ def _submission_banner(name: str) -> dict | None:
 		st.COMPLETED: ("green", _("E-invoice completed")),
 		st.FAILED: ("red", _("E-invoice failed")),
 	}.get(sub.status, ("blue", _("E-invoice: {0}").format(sub.status)))
-	details = {st.REJECTED: sub.validation_errors, st.ERROR: sub.error_message}.get(sub.status) or ""
+	details = {st.REJECTED: sub.validation_errors, st.ERROR: sub.error_message, st.FAILED: sub.error_message}
+	details = details.get(sub.status) or ""
 	details = [line.strip() for line in details.splitlines() if line.strip()]
 	return {
 		"color": color,

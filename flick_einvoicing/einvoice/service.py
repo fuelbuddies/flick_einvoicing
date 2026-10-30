@@ -391,7 +391,11 @@ def apply_detail(sub, data: dict):
 	sub.exchange_settled = 1 if exchange.get("settled") else 0
 	sub.status = st.combined(sub.reporting_status, sub.exchange_status)
 	sub.error_message = format_track_errors(errors) or None
-	sub.next_action = st.next_action(sub, origins={e.get("origin") for e in errors if e.get("origin")})
+	sub.next_action = st.next_action(
+		sub,
+		origins={e.get("origin") for e in errors if e.get("origin")},
+		codes={e.get("code") for e in errors if e.get("code")},
+	)
 	sub.response_payload = json.dumps({k: v for k, v in data.items() if k != "document"}, indent=1)
 	_save(sub)
 

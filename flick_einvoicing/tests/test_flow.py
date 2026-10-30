@@ -1032,6 +1032,12 @@ class TestFailures(FlowTestCase):
 		self.assertTrue(st.numbers_released(sub))
 		self.assertIn("RECIPIENT_NOT_ON_NETWORK", sub.error_message)
 		self.assertIn("Flick support", sub.next_action)
+		self.assertIn("Correct the Peppol ID on the customer or supplier, then Resubmit.", sub.next_action)
+		# The invoice says why, not only that it failed.
+		banner = invoice_banner("Sales Invoice", si.name)
+		self.assertEqual((banner["color"], banner["title"]), ("red", "E-invoice failed"))
+		self.assertTrue(banner["lines"][0].startswith("Flick could not find the recipient's Peppol ID"))
+		self.assertTrue(any("RECIPIENT_NOT_ON_NETWORK" in line for line in banner["lines"][1:]))
 
 		new_name = service.resubmit(sub)
 		self.assertEqual(frappe.db.get_value(service.DOCTYPE, sub.name, "docstatus"), 2)
@@ -1286,6 +1292,7 @@ class TestGuidance(FlowTestCase):
 		)
 		banner = invoice_banner("Sales Invoice", si.name)
 		self.assertEqual(banner["color"], "orange")
+		self.assertRegex(banner["title"], r"^Not ready to e-invoice: (1 problem|\d+ problems) to fix before submitting\.$")
 		self.assertTrue(any("has no Peppol ID" in line for line in banner["lines"]))
 
 	def test_banner_on_a_draft_ready_to_send(self):
@@ -1293,6 +1300,14 @@ class TestGuidance(FlowTestCase):
 		banner = invoice_banner("Sales Invoice", si.name)
 		self.assertEqual(banner["color"], "green")
 		self.assertIn("queued when you submit it", banner["title"])  # the fixture sends in batches
+		self.assertEqual(banner["action"], {"label": "Check with Flick", "check": True})
+		self.assertIn("Flick validates it again when it is sent", banner["lines"][0])
+		self.settings(validate_before_submit=1)
+		try:
+			banner = invoice_banner("Sales Invoice", si.name)
+		finally:
+			self.settings(validate_before_submit=0)
+		self.assertIn("stops the submit if it finds a problem", banner["lines"][0])
 
 	def test_banner_on_a_skipped_invoice_says_why(self):
 		si = make_invoice(
