@@ -24,7 +24,7 @@ class EInvoicingSettings(Document):
 		if self.participant_id and not UUID_PATTERN.match(self.participant_id):
 			frappe.throw(
 				_(
-					"Participant ID should be the UUID Flick gave you, like 019fc2bd-5623-7e33-aeca-a95afb39541a."
+					"Participant ID should be the UUID Flick gave you, like 0190a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b."
 				)
 			)
 

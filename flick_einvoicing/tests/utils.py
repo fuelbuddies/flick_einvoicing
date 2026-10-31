@@ -10,7 +10,7 @@ from frappe.utils import add_days, today
 
 from flick_einvoicing.providers.flick import Response
 
-PARTICIPANT = "019fc2bd-5623-7e33-aeca-a95afb39541a"
+PARTICIPANT = "0190a1b2-c3d4-7e5f-8a6b-7c8d9e0f1a2b"
 BUYER_PEPPOL = "0235:1066001239"
 BUYER_TRN = "100000123400003"
 SUPPLIER_PEPPOL = "0235:1020260015"
