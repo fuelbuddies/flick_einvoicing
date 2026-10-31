@@ -312,12 +312,17 @@ class _Builder:
 				)
 		return vat_rows, charge_rows
 
+	@staticmethod
+	def item_rates(item) -> dict:
+		"""The rates the line's Item Tax Template sets, by account."""
+		try:
+			return json.loads(item.item_tax_rate) if item.item_tax_rate else {}
+		except (TypeError, ValueError):
+			return {}
+
 	def line_rate(self, item) -> float:
 		"""The VAT rate ERPNext applied to this line, worked out the way ERPNext does."""
-		try:
-			item_rates = json.loads(item.item_tax_rate) if item.item_tax_rate else {}
-		except (TypeError, ValueError):
-			item_rates = {}
+		item_rates = self.item_rates(item)
 		rate = 0.0
 		for tax in self.vat_rows:
 			rate += flt(item_rates[tax.account_head]) if tax.account_head in item_rates else flt(tax.rate)
@@ -391,8 +396,21 @@ class _Builder:
 			)
 		elif category in ("Z", "E", "O", "AE") and flt(rate, 6) != 0:
 			why = " (under reverse charge the buyer accounts for the VAT)" if category == "AE" else ""
+			# ERPNext's own UAE Zero and Exempted templates name accounts of their own, which leaves the
+			# invoice's 5% row charging the line.
+			uncovered = [
+				tax.account_head
+				for tax in self.vat_rows
+				if flt(tax.rate) and tax.account_head not in self.item_rates(item)
+			]
+			fix = (
+				f" Its Item Tax Template {item.item_tax_template} does not list {', '.join(uncovered)}, the "
+				"account the invoice charges VAT to: add it to the template at 0%."
+				if item.get("item_tax_template") and uncovered
+				else ""
+			)
 			self.problem(
-				f"{label} is mapped as {treatment.tax_category}, but ERPNext charges {rate:g}% VAT on it{why}."
+				f"{label} is mapped as {treatment.tax_category}, but ERPNext charges {rate:g}% VAT on it{why}.{fix}"
 			)
 		if category == "S" and (item.get("is_zero_rated") or item.get("is_exempt")):
 			self.problem(

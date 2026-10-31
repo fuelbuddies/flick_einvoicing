@@ -369,6 +369,37 @@ class TestDocuments(FlowTestCase):
 		si = make_invoice(self.fx, [(1, 100, None), (1, 100, other.name)])
 		self.assertTrue(any("has no tax treatment" in p for p in self.problems(si)))
 
+	def test_zero_rated_template_on_its_own_account_names_the_account_to_add(self):
+		# As ERPNext's own "UAE VAT Zero": 0% on an account the invoice's VAT row doesn't use.
+		parent = frappe.db.get_value("Account", self.fx.vat, "parent_account")
+		account = frappe.get_doc(
+			{
+				"doctype": "Account",
+				"account_name": f"_Test EInv VAT Zero {frappe.generate_hash(length=4)}",
+				"parent_account": parent,
+				"company": self.fx.company.name,
+				"account_type": "Tax",
+			}
+		).insert()
+		own = frappe.get_doc(
+			{
+				"doctype": "Item Tax Template",
+				"title": f"_Test EInv Own Zero {frappe.generate_hash(length=4)}",
+				"company": self.fx.company.name,
+				"taxes": [{"tax_type": account.name, "tax_rate": 0}],
+			}
+		).insert()
+		settings = frappe.get_doc("E Invoicing Settings", self.fx.company.name)
+		settings.append(
+			"tax_treatments",
+			{"template_type": "Item Tax Template", "template": own.name, "tax_category": "Z - Zero rated"},
+		)
+		settings.save()
+		si = make_invoice(self.fx, [(1, 100, None), (1, 100, own.name)])
+		self.assertTrue(
+			any(f"does not list {self.fx.vat}" in p and "at 0%" in p for p in self.problems(si)), self.problems(si)
+		)
+
 	def test_b2c_gets_no_submission(self):
 		si = make_invoice(
 			self.fx, [(1, 100, None)], customer=self.fx.walk_in, address=self.fx.walk_in_address, submit=True

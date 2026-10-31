@@ -23,6 +23,8 @@ doctype_js = {
 after_install = "flick_einvoicing.install.after_install"
 after_migrate = "flick_einvoicing.install.after_migrate"
 before_uninstall = "flick_einvoicing.install.before_uninstall"
+# Installed on a new site before its setup wizard: what needs ERPNext's masters is made after it.
+setup_wizard_complete = "flick_einvoicing.install.after_setup_wizard"
 
 # Document Events
 # ---------------

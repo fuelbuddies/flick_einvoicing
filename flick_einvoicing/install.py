@@ -37,6 +37,11 @@ def ensure_doctypes():
 	sync_for("flick_einvoicing", reset_permissions=True)
 
 
+def after_setup_wizard(args=None):
+	"""A site the app was installed on before its setup wizard had no item groups yet."""
+	ensure_placeholder_item()
+
+
 def after_migrate():
 	sync_custom_fields()
 	ensure_uom_code_list()
@@ -56,6 +61,9 @@ def ensure_placeholder_item() -> str | None:
 		if frappe.db.get_value("Item", name, "is_sales_item"):
 			frappe.db.set_value("Item", name, "is_sales_item", 0)
 		return name
+	root = get_root_of("Item Group")
+	if not root:
+		return None  # a new site before its setup wizard, which makes the item groups and then calls this
 	frappe.db.savepoint("flick_placeholder")
 	try:
 		item = frappe.get_doc(
@@ -66,8 +74,7 @@ def ensure_placeholder_item() -> str | None:
 				"description": "Holds a line of a received e-invoice that no item of ours matched, until someone "
 				"picks ours. Never sold or stocked; a purchase invoice can't be submitted while a line is on it.",
 				# Services where there is such a group, else the root: never a group of the client's goods.
-				"item_group": frappe.db.get_value("Item Group", {"name": "Services", "is_group": 0})
-				or get_root_of("Item Group"),
+				"item_group": frappe.db.get_value("Item Group", {"name": "Services", "is_group": 0}) or root,
 				"stock_uom": "Nos",
 				"is_stock_item": 0,
 				"is_sales_item": 0,

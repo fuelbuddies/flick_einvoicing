@@ -103,6 +103,14 @@
 	<li>The amount due is ERPNext's grand total, or its rounded total. A difference between that and net plus VAT goes on the e-invoice as a rounding amount, so the buyer owes what your books say.</li>
 </ul>
 
+<h4>Lines in other VAT categories</h4>
+<p>
+	A zero-rated or exempt line carries an Item Tax Template mapped to its category. That template has to set the
+	account the invoice's VAT row charges to 0%. ERPNext's own UAE templates (UAE VAT Zero, UAE VAT Exempted) each
+	name an account of their own, so on their own they leave the line charged 5%, and the submit stops and names
+	the account to add.
+</p>
+
 <h4>Discounts and charges</h4>
 <ul>
 	<li>A line's own discount shows as a price discount: the gross price and the discount off it.</li>

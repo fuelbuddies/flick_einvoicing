@@ -65,7 +65,10 @@ def steps(company: str, settings) -> list[dict]:
 		_step(
 			_("Map every VAT template under Tax Treatments"),
 			bool(s and s.tax_treatments) and not unmapped,
-			_("Not mapped yet: {0}").format(_listed(unmapped)) if unmapped else None,
+			# ERPNext makes Excise templates for every UAE company; most never use them.
+			_("Not mapped yet: {0}. Disable any this company doesn't use.").format(_listed(unmapped))
+			if unmapped
+			else None,
 		),
 	]
 	if s and s.status_updates == "Webhook":
