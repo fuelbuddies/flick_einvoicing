@@ -115,9 +115,16 @@
 <ul>
 	<li>A line's own discount shows as a price discount: the gross price and the discount off it.</li>
 	<li>The invoice's Additional Discount goes as an allowance per VAT category, reason {{ discount_reason_code }} "Discount", unless the company's <i>Invoice Discount</i> is set to spread it over the lines, or prices include tax: then it is folded into the lines' amounts. The totals are the same either way.</li>
-	<li>A negative Additional Discount raises the total, to round it up, say. PINT-AE has no negative allowance, so it goes as a charge with the company's <i>Reason Code for Negative Discounts</i>; until one is set, such invoices are stopped.</li>
+	<li>A negative Additional Discount raises the total, to round it up, say. PINT-AE has no negative allowance, so it goes as a charge with the company's <i>Reason Code for Negative Discounts</i>, AJ (Adjustments) unless changed; with none set, such invoices are stopped.</li>
 	<li>A charge in the taxes table, such as freight, needs its account mapped under <i>Charge Accounts</i> with a reason code and VAT category, charged "Actual". Every other row must be VAT, on the net total or on a previous row.</li>
 </ul>
+
+<h4>Buyers abroad</h4>
+<p>
+	Flick accepts only a UAE emirate on an address, even a foreign buyer's or an export's delivery address (rule
+	ibr-152-ae). For those the app sends the company's <i>Emirate Sent for Addresses Abroad</i>, the emirate the
+	goods leave from: the company's own unless changed.
+</p>
 
 <h4>Foreign currency</h4>
 <p>

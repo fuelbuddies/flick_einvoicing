@@ -28,6 +28,10 @@ class EInvoicingSettings(Document):
 				)
 			)
 
+		if not self.export_emirate:
+			# Goods usually leave from the company's own emirate.
+			self.export_emirate = company_emirate(self.company)
+
 		self.validate_tax_treatments()
 		self.validate_charge_reasons()
 		if self.enabled:
@@ -142,3 +146,22 @@ class EInvoicingSettings(Document):
 			frappe.throw(
 				_("Register the webhook with Flick first, or read status updates from the events feed.")
 			)
+
+
+def company_emirate(company: str | None) -> str | None:
+	"""The emirate on the company's own address, its primary address first."""
+	if not company or not frappe.get_meta("Address").has_field("emirate"):
+		return None
+	emirates = frappe.get_all(
+		"Address",
+		filters=[
+			["Dynamic Link", "link_doctype", "=", "Company"],
+			["Dynamic Link", "link_name", "=", company],
+			["emirate", "is", "set"],
+			["disabled", "=", 0],
+		],
+		pluck="emirate",
+		order_by="`tabAddress`.is_primary_address desc, `tabAddress`.modified desc",
+		limit=1,
+	)
+	return emirates[0] if emirates and emirates[0] in codes.EMIRATE_CODES else None

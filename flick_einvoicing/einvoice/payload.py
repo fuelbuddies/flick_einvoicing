@@ -811,7 +811,7 @@ class _Builder:
 			code = codes.EMIRATE_CODES.get(self.settings.get("export_emirate"))
 			if not code:
 				self.problem(
-					f"{label} is abroad: set the Emirate for Foreign Addresses in E Invoicing Settings."
+					f"{label} is abroad: set the Emirate Sent for Addresses Abroad in E Invoicing Settings."
 				)
 			return code
 		if not frappe.get_meta("Address").has_field("emirate"):

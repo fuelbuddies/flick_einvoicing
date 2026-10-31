@@ -211,6 +211,8 @@ class TestDocuments(FlowTestCase):
 		self.assertEqual(payload["allowance_charges"][0]["amount"], f"{si.net_total - 837.5:.2f}")
 
 	def test_negative_discount_needs_a_reason_code(self):
+		self.settings(negative_discount_reason_code=None)
+		self.addCleanup(self.settings, negative_discount_reason_code="AJ")
 		si = make_invoice(self.fx, [(3, 40, None)], discount=-20)
 		self.assertTrue(any("Reason Code for Negative Discounts" in p for p in self.problems(si)))
 
@@ -328,6 +330,30 @@ class TestDocuments(FlowTestCase):
 		with self.assertRaises(frappe.ValidationError) as caught:
 			settings.validate_charge_reasons()
 		self.assertIn("Charge row 1: reason code QQQ", str(caught.exception))
+
+	def test_new_settings_come_prefilled(self):
+		fresh = frappe.new_doc("E Invoicing Settings")
+		self.assertEqual((fresh.negative_discount_reason_code, fresh.negative_discount_reason), ("AJ", "Adjustment"))
+		# Left empty, the emirate sent for addresses abroad is the company's own.
+		frappe.get_doc(
+			{
+				"doctype": "Address",
+				"address_title": f"{PREFIX} Head Office",
+				"address_type": "Billing",
+				"address_line1": "Industrial Area 2",
+				"city": "Ajman",
+				"emirate": "Ajman",
+				"country": "United Arab Emirates",
+				"is_primary_address": 1,
+				"is_your_company_address": 1,
+				"links": [{"link_doctype": "Company", "link_name": self.fx.company.name}],
+			}
+		).insert()
+		self.settings(export_emirate=None)
+		self.addCleanup(self.settings, export_emirate="Dubai")
+		settings = frappe.get_doc("E Invoicing Settings", self.fx.company.name)
+		settings.save()
+		self.assertEqual(settings.export_emirate, "Ajman")
 
 	def test_charge_reason_dropped_from_the_list_is_refused(self):
 		# Saved before a refresh of the list dropped it: settings keep it, the invoice check refuses it.

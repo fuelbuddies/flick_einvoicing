@@ -234,23 +234,25 @@
   },
   {
    "depends_on": "eval:doc.discount_style != 'Spread over lines'",
-   "description": "A negative invoice discount raises the total (to round it up, for instance), and the e-invoice states it as a charge. Charges carry a reason code from PINT-AE's UNCL 7161 list: agree which one with the client. There is no default.",
+   "description": "A negative invoice discount raises the total (to round it up, for instance), and the e-invoice states it as a charge with a reason code from PINT-AE's UNCL 7161 list: AJ (Adjustments) unless the client wants another.",
    "fieldname": "negative_discount_reason_code",
    "fieldtype": "Autocomplete",
-   "label": "Reason Code for Negative Discounts"
+   "label": "Reason Code for Negative Discounts",
+   "default": "AJ"
   },
   {
    "depends_on": "eval:doc.discount_style != 'Spread over lines'",
    "description": "Optional wording sent with that code; leave it empty to send the code alone.",
    "fieldname": "negative_discount_reason",
    "fieldtype": "Data",
-   "label": "Reason for Negative Discounts"
+   "label": "Reason for Negative Discounts",
+   "default": "Adjustment"
   },
   {
-   "description": "Flick requires an emirate even on an address abroad (ibr-152-ae): use the emirate the goods leave from.",
+   "description": "Flick accepts only a UAE emirate on an address, a foreign buyer's or an export delivery's too (rule ibr-152-ae), so this one is sent for them: the emirate the goods leave from. Left empty, the company's own.",
    "fieldname": "export_emirate",
    "fieldtype": "Select",
-   "label": "Emirate for Foreign Addresses",
+   "label": "Emirate Sent for Addresses Abroad",
    "options": "\nAbu Dhabi\nDubai\nSharjah\nAjman\nUmm Al Quwain\nRas Al Khaimah\nFujairah"
   },
   {
@@ -544,7 +546,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-10-31 12:00:00.000000",
+ "modified": "2026-10-31 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Flick E-Invoicing",
  "name": "E Invoicing Settings",
