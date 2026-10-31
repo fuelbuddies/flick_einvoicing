@@ -1,5 +1,6 @@
 import base64
 import json
+import random
 from unittest.mock import patch
 
 import frappe
@@ -1282,8 +1283,9 @@ class TestReceivingAgainstOrders(FlowTestCase):
 		TestReceiving.default_branch_of_test_company(self)
 		self.cable = _item(f"{PREFIX} Cable", "Cable")
 
-	def received(self, lines, supplier=None, **document):
-		"""An E Invoice Received record as receive() stores one, without asking Flick."""
+	def received(self, lines, supplier=None, sender=None, **document):
+		"""An E Invoice Received record as receive() stores one, without asking Flick. From a
+		sender (Peppol ID, TRN), it gets the supplier receive() would match, if any."""
 		identifier = f"SUP-{frappe.generate_hash(length=8)}"
 		document = {
 			"document_identifier": identifier,
@@ -1303,7 +1305,9 @@ class TestReceivingAgainstOrders(FlowTestCase):
 					"document_identifier": identifier,
 					"document_type": "380",
 					"issue_date": today(),
-					"supplier": supplier or self.fx.supplier,
+					"supplier": supplier or (inbound.match_supplier(*sender) if sender else self.fx.supplier),
+					"sender_peppol_id": sender[0] if sender else None,
+					"sender_vat": sender[1] if sender else None,
 					"currency": document["document_currency"],
 					"document_json": json.dumps(document),
 				}
@@ -1359,6 +1363,69 @@ class TestReceivingAgainstOrders(FlowTestCase):
 
 	def notes(self, name):
 		return frappe.db.get_value("E Invoice Received", name, "notes") or ""
+
+	def sender(self):
+		"""A Peppol ID and TRN no supplier here has."""
+		tin = f"10{random.randrange(10**8):08d}"
+		return f"0235:{tin}", f"{tin}00003"
+
+	def new_supplier(self, **values):
+		return frappe.get_doc(
+			{
+				"doctype": "Supplier",
+				"supplier_name": f"{PREFIX} Later {frappe.generate_hash(length=6)}",
+				"supplier_group": frappe.db.get_value("Supplier Group", {"is_group": 0}, "name") or "All Supplier Groups",
+				**values,
+			}
+		).insert()
+
+	def test_supplier_added_later_takes_the_invoices_waiting_for_it(self):
+		sender = self.sender()
+		line = self.line(1, 2, 100, "X-1", buyers_item_code=self.fx.phone)
+		first, second = self.received([line], sender=sender), self.received([line], sender=sender)
+		self.assertIsNone(frappe.db.get_value("E Invoice Received", first, "supplier"))
+		with self.assertRaisesRegex(frappe.ValidationError, "No supplier matches the sender"):
+			inbound.create_purchase_invoice(first)
+
+		supplier = self.new_supplier(einvoice_peppol_id=sender[0]).name
+		self.assertEqual(
+			frappe.get_all("E Invoice Received", filters={"name": ("in", [first, second])}, pluck="supplier"),
+			[supplier, supplier],
+		)
+
+	def test_submit_gives_a_supplier_matched_by_trn_the_senders_peppol_id(self):
+		peppol_id, trn = self.sender()
+		name = self.received([self.line(1, 2, 100, "X-1", buyers_item_code=self.fx.phone)], sender=(peppol_id, trn))
+		supplier = self.new_supplier().name
+		# Given the TRN the way an import or a script would, without the supplier's hooks.
+		frappe.db.set_value("Supplier", supplier, "tax_id", trn)
+		pi = frappe.get_doc("Purchase Invoice", inbound.create_purchase_invoice(name))
+		self.assertEqual(pi.supplier, supplier)
+		# One more from the sender, quoting only its Peppol ID: nothing here matches it yet.
+		later = self.received([self.line(1, 1, 100, "X-1")], sender=(peppol_id, None))
+		self.assertIsNone(frappe.db.get_value("E Invoice Received", later, "supplier"))
+
+		pi.submit()
+		self.assertEqual(frappe.db.get_value("Supplier", supplier, "einvoice_peppol_id"), peppol_id)
+		self.assertEqual(frappe.db.get_value("E Invoice Received", later, "supplier"), supplier)
+		comment = frappe.get_all("Comment", filters={"reference_name": name, "comment_type": "Info"}, pluck="content")
+		self.assertIn(f"{supplier}'s Peppol ID is {peppol_id} (1 more", " ".join(comment))
+
+	def test_long_line_name_that_looks_like_html_still_fits(self):
+		# Frappe escapes a value with tags on save: 140 characters of it no longer fit in 140.
+		name = self.received([self.line(1, 1, 100, "X-1", name="QA & Test / QA <Test> / " * 8)])
+		pi = frappe.get_doc("Purchase Invoice", inbound.create_purchase_invoice(name))
+		self.assertLessEqual(len(pi.items[0].item_name), 140)
+		self.assertTrue(pi.items[0].item_name.startswith("QA &amp; Test / QA &lt;Test&gt;"))
+
+	def test_invoice_in_another_currency_needs_a_payable_account_in_it(self):
+		setting = ("Accounts Settings", "allow_multi_currency_invoices_against_single_party_account")
+		self.addCleanup(frappe.db.set_single_value, *setting, frappe.db.get_single_value(*setting))
+		frappe.db.set_single_value(*setting, 0)
+		supplier = self.new_supplier().name
+		name = self.received([self.line(1, 1, 100, "SUP-PHONE")], supplier=supplier, document_currency="USD")
+		with self.assertRaisesRegex(frappe.ValidationError, "bills in USD, but its payable account"):
+			inbound.create_purchase_invoice(name)
 
 	def test_invoice_quoting_our_order_bills_it(self):
 		po = self.purchase_order([(self.fx.phone, 2, 100), (self.cable, 3, 10)])

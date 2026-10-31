@@ -6,6 +6,21 @@ frappe.ui.form.on("E Invoice Received", {
 		if (frm.doc.notes) {
 			frm.dashboard.set_headline_alert(`<div>${frappe.utils.escape_html(frm.doc.notes).replace(/\n/g, "<br>")}</div>`, "orange");
 		}
+		if (frm.doc.status === "New" && !frm.doc.supplier) {
+			// Saving the supplier with the sender's Peppol ID or TRN links this invoice, and any others from it.
+			frm.add_custom_button(__("Create Supplier"), () => {
+				const supplier = frappe.model.get_new_doc("Supplier");
+				Object.assign(supplier, {
+					supplier_name: frm.doc.sender_name,
+					tax_id: frm.doc.sender_vat,
+					einvoice_peppol_id: frm.doc.sender_peppol_id,
+				});
+				if ((frm.doc.sender_peppol_id || "").startsWith("0235:")) {
+					supplier.country = "United Arab Emirates";
+				}
+				frappe.set_route("Form", "Supplier", supplier.name);
+			});
+		}
 		if (frm.doc.status === "New") {
 			frm.add_custom_button(__("Create Purchase Invoice"), () =>
 				frappe

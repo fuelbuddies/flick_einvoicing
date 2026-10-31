@@ -44,6 +44,8 @@ doc_events = {
 		"before_submit": [_invoice_events["before_submit"], "flick_einvoicing.einvoice.inbound.check_unmatched_lines"],
 		"on_submit": [_invoice_events["on_submit"], "flick_einvoicing.einvoice.inbound.remember_item_codes"],
 	},
+	# Received invoices that came in before their sender was a supplier here.
+	"Supplier": {"on_update": "flick_einvoicing.einvoice.inbound.match_waiting"},
 }
 
 # Scheduled Tasks

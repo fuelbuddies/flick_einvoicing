@@ -15,6 +15,7 @@ import json
 
 import frappe
 from frappe.utils import cint, cstr, flt, getdate, now, today
+from frappe.utils.html_utils import sanitize_html
 
 from flick_einvoicing.einvoice import codes, reconcile
 from flick_einvoicing.providers import get_client
@@ -59,7 +60,7 @@ def receive(document_id: str | None, settings) -> str | None:
 			"document_identifier": data.get("document_identifier") or document.get("document_identifier"),
 			"document_type": document.get("document_type") or data.get("type"),
 			"issue_date": document.get("issue_date"),
-			"sender_name": counterparty.get("name") or seller.get("legal_name"),
+			"sender_name": _fit(counterparty.get("name") or seller.get("legal_name")),
 			"sender_peppol_id": sender_peppol,
 			"sender_vat": sender_vat,
 			"supplier": match_supplier(sender_peppol, sender_vat),
@@ -100,6 +101,36 @@ def match_supplier(peppol_id: str | None, vat: str | None) -> str | None:
 	return None
 
 
+def match_waiting(doc, method=None):
+	"""Supplier on_update: invoices that came in before their sender was a supplier here wait
+	without one. They get this supplier once its Peppol ID or TRN matches the sender's."""
+	if doc.has_value_changed("einvoice_peppol_id") or doc.has_value_changed("tax_id"):
+		link_waiting(doc.get("einvoice_peppol_id"), doc.get("tax_id"))
+
+
+def link_waiting(peppol_id: str | None, vat: str | None) -> int:
+	"""Match the received invoices still waiting for a supplier from this Peppol ID or TRN."""
+	senders = {
+		field: value
+		for field, value in (("sender_peppol_id", cstr(peppol_id).strip()), ("sender_vat", cstr(vat).strip()))
+		if value
+	}
+	if not senders:
+		return 0
+	linked = 0
+	for record in frappe.get_all(
+		RECEIVED,
+		filters={"status": "New", "supplier": ("is", "not set")},
+		or_filters=senders,
+		fields=["name", "sender_peppol_id", "sender_vat"],
+	):
+		supplier = match_supplier(record.sender_peppol_id, record.sender_vat)
+		if supplier:
+			frappe.db.set_value(RECEIVED, record.name, "supplier", supplier)
+			linked += 1
+	return linked
+
+
 def create_purchase_invoice(name: str) -> str:
 	"""Draft a Purchase Invoice from a received document. When the supplier quotes our receipt,
 	their delivery note or our purchase order, the draft is made from those, so they show as
@@ -108,7 +139,16 @@ def create_purchase_invoice(name: str) -> str:
 	if record.purchase_invoice:
 		return record.purchase_invoice
 	if not record.supplier:
-		frappe.throw(f"Set the Supplier on {name} first: no supplier matched the sender.")
+		# The supplier may have been given the sender's Peppol ID or TRN since it came in.
+		supplier = match_supplier(record.sender_peppol_id, record.sender_vat)
+		if supplier:
+			record.db_set("supplier", supplier)
+	if not record.supplier:
+		frappe.throw(
+			f"No supplier matches the sender of {name} (Peppol ID {record.sender_peppol_id or 'none'}, "
+			f"TRN {record.sender_vat or 'none'}). Use Create Supplier on it, or set its Supplier by hand.",
+			title="Supplier not found",
+		)
 	settings = frappe.get_doc("E Invoicing Settings", record.company)
 	document = json.loads(record.document_json or "{}")
 	notes = []
@@ -179,7 +219,7 @@ def create_purchase_invoice(name: str) -> str:
 				"items",
 				{
 					"item_code": item_code or placeholder,
-					"item_name": cstr(line.get("name") or line.get("description"))[:140] or label,
+					"item_name": _fit(line.get("name") or line.get("description")) or label,
 					"description": cstr(line.get("description") or line.get("name")) or None,
 					"qty": sign * flt(line.get("quantity")),
 					"rate": reconcile.unit_rate(line),
@@ -216,6 +256,7 @@ def create_purchase_invoice(name: str) -> str:
 		pi.taxes_and_charges = template
 		pi.set_taxes()
 
+	_check_payable_currency(pi)
 	pi.flags.ignore_mandatory = True  # a draft for review; ERPNext asks again on submit
 	try:
 		pi.insert(ignore_permissions=True)
@@ -281,6 +322,37 @@ def _set_exchange_rate(pi, document: dict, notes: list):
 			)
 			return
 	pi.conversion_rate = rate
+
+
+def _check_payable_currency(pi):
+	"""ERPNext books an invoice in another currency only to a payable account in that currency,
+	unless Accounts Settings allow it. Say what to set up, rather than ERPNext's own message."""
+	from erpnext.accounts.party import get_party_account, get_party_gle_currency
+
+	if pi.currency == frappe.get_cached_value("Company", pi.company, "default_currency") or cint(
+		frappe.db.get_single_value("Accounts Settings", "allow_multi_currency_invoices_against_single_party_account")
+	):
+		return
+	if get_party_gle_currency("Supplier", pi.supplier, pi.company):
+		return  # booked before: ERPNext's message names the currency it was booked in
+	account = pi.get("credit_to") or get_party_account("Supplier", pi.supplier, pi.company)
+	currency = frappe.get_cached_value("Account", account, "account_currency") if account else None
+	if currency and currency != pi.currency:
+		frappe.throw(
+			f"{pi.supplier} bills in {pi.currency}, but its payable account {account} is in {currency}. "
+			f"Add a {pi.currency} payable account for {pi.company} under Accounts on the supplier, "
+			"then create the draft again.",
+			title=f"No {pi.currency} payable account",
+		)
+
+
+def _fit(text, length: int = 140) -> str:
+	"""Supplier text cut to a Data field's length as Frappe will store it: a value that looks like
+	HTML is escaped on save, which can take it past the field's length."""
+	text = cstr(text)[:length]
+	while (over := len(sanitize_html(text)) - length) > 0:
+		text = text[: -max(1, over // 5)]
+	return text
 
 
 def placeholder_item() -> str | None:
@@ -477,11 +549,21 @@ def check_unmatched_lines(doc, method=None):
 def remember_item_codes(doc, method=None):
 	"""On submitting a purchase invoice made from a received e-invoice, remember which of our
 	items each supplier code turned out to be, so the next invoice matches by itself. The
-	reviewer's choice replaces an earlier one. Never stops the submit."""
+	reviewer's choice replaces an earlier one. A supplier without a Peppol ID gets the sender's.
+	Never stops the submit."""
 	if not doc.get("einvoice_received"):
 		return
 	held = _placeholders(doc.company)
 	learned = []
+	frappe.db.savepoint("flick_remember")
+	try:
+		change = _remember_sender(doc)
+	except Exception:
+		frappe.db.rollback(save_point="flick_remember")
+		frappe.log_error(f"E-invoice: remembering the sender's Peppol ID for {doc.supplier}")
+		change = None
+	if change:
+		learned.append(change)
 	for row in doc.items:
 		code = cstr(row.get("einvoice_supplier_item_code")).strip()
 		if not code or not row.item_code or row.item_code in held:
@@ -499,6 +581,21 @@ def remember_item_codes(doc, method=None):
 		frappe.get_doc(RECEIVED, doc.einvoice_received).add_comment(
 			"Info", "Remembered for the next invoice: " + "; ".join(learned)
 		)
+
+
+def _remember_sender(doc) -> str | None:
+	"""The sender's Peppol ID, on a supplier that has none and was matched by TRN or by hand, so
+	its next invoices match by themselves; those already waiting get the supplier now. Never one
+	another supplier has. Returns what changed."""
+	sender = cstr(frappe.db.get_value(RECEIVED, doc.einvoice_received, "sender_peppol_id")).strip()
+	if not sender or frappe.db.get_value("Supplier", doc.supplier, "einvoice_peppol_id"):
+		return None
+	if frappe.db.exists("Supplier", {"einvoice_peppol_id": sender, "name": ("!=", doc.supplier)}):
+		return None
+	frappe.db.set_value("Supplier", doc.supplier, "einvoice_peppol_id", sender)
+	waiting = link_waiting(sender, None)
+	also = f" ({waiting} more of its invoices now have this supplier)" if waiting else ""
+	return f"{doc.supplier}'s Peppol ID is {sender}{also}"
 
 
 def _remember(supplier: str, code: str, item_code: str) -> str | None:
