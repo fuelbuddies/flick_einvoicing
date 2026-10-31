@@ -5,9 +5,10 @@ Purchase Invoice can then be made from it, from our Purchase Receipts or Purchas
 supplier quotes them. A line no item matches goes on a placeholder item (the company's Item for
 Unmatched Lines, else the app's own), and the invoice can't be submitted until someone picks our
 item for it; with no placeholder at all, it stays a line without an item, booked as an expense,
-where the site allows that. What can't be matched
-(supplier, items, UOMs, prices) is listed on the record for whoever reviews the draft. Nothing here submits anything. Submitting the reviewed
-invoice remembers which of our items each supplier code turned out to be.
+where the site allows that. The draft is then brought to the supplier's figures (see reconcile).
+What can't be matched (supplier, items, UOMs, prices) is listed on the record for whoever reviews
+the draft. Nothing here submits anything. Submitting the reviewed invoice remembers which of our
+items each supplier code turned out to be.
 """
 
 import json
@@ -15,7 +16,7 @@ import json
 import frappe
 from frappe.utils import cint, cstr, flt, getdate, now, today
 
-from flick_einvoicing.einvoice import codes
+from flick_einvoicing.einvoice import codes, reconcile
 from flick_einvoicing.providers import get_client
 from flick_einvoicing.providers.flick import INCOMING
 
@@ -129,8 +130,6 @@ def create_purchase_invoice(name: str) -> str:
 	pi.posting_date = today()
 	pi.set_posting_time = 1
 	pi.currency = currency
-	if pi.currency != "AED" and document.get("currency_exchange_rate"):
-		pi.conversion_rate = flt(document["currency_exchange_rate"])
 	if document.get("due_date") and not is_return:
 		pi.due_date = getdate(document["due_date"])
 		if mapped:
@@ -159,8 +158,7 @@ def create_purchase_invoice(name: str) -> str:
 	quoted_order = cstr((document.get("order_reference") or {}).get("purchase_order_id")).strip()
 	placeholder = settings.get("purchase_item") or placeholder_item()
 	expense_account = frappe.get_cached_value("Company", record.company, "default_expense_account")
-	billed = []  # (row, line): each draft row and the supplier's line it bills
-	for line in lines:
+	for number, line in enumerate(lines, 1):
 		label = f"Line {line.get('id')}"
 		item_code = _match_item(line, record.supplier)
 		row = _claim(ordered, line, item_code, quoted_order)
@@ -184,7 +182,7 @@ def create_purchase_invoice(name: str) -> str:
 					"item_name": cstr(line.get("name") or line.get("description"))[:140] or label,
 					"description": cstr(line.get("description") or line.get("name")) or None,
 					"qty": sign * flt(line.get("quantity")),
-					"rate": flt(line.get("unit_price")),
+					"rate": reconcile.unit_rate(line),
 				},
 			)
 			uom = _uom_for(line.get("uom"), settings)
@@ -198,7 +196,7 @@ def create_purchase_invoice(name: str) -> str:
 				row.expense_account = expense_account
 				row.cost_center = pi.get("cost_center")
 		row.einvoice_supplier_item_code = cstr(line.get("supplier_item_code")) or None
-		billed.append((row, line))
+		row.einvoice_line_no = number
 		category = line.get("tax_category")
 		if category and category != "S" and not row.get("item_tax_template"):
 			template = item_templates.get(category)
@@ -207,13 +205,15 @@ def create_purchase_invoice(name: str) -> str:
 			else:
 				notes.append(f"{label}: VAT category {category} has no Item Tax Template mapped.")
 
-	# A receipt or order brings its own taxes; otherwise the configured template does.
-	if (
-		not pi.get("taxes")
-		and settings.get("purchase_taxes_template")
-		and any((l.get("tax_category") == "S") for l in lines)
-	):
-		pi.taxes_and_charges = settings.purchase_taxes_template
+	_set_exchange_rate(pi, document, notes)
+
+	# A receipt or order brings its own taxes; otherwise the configured template does, else the
+	# company's default, as on a purchase invoice made by hand.
+	template = settings.get("purchase_taxes_template") or frappe.db.get_value(
+		"Purchase Taxes and Charges Template", {"company": record.company, "is_default": 1, "disabled": 0}, "name"
+	)
+	if not pi.get("taxes") and template and any((l.get("tax_category") == "S") for l in lines):
+		pi.taxes_and_charges = template
 		pi.set_taxes()
 
 	pi.flags.ignore_mandatory = True  # a draft for review; ERPNext asks again on submit
@@ -226,20 +226,22 @@ def create_purchase_invoice(name: str) -> str:
 	if len(pi.items) < len(lines):
 		_refuse_lost_lines(len(lines) - len(pi.items))
 
-	for row, line in billed:
-		_note_rounded_price(row, line, notes)
-	totals = document.get("invoice_totals") or {}
-	expected = flt(totals.get("payable_amount") or totals.get("tax_inclusive_amount"))
-	if expected and abs(abs(flt(pi.grand_total)) - expected) > 0.01:
-		notes.append(
-			f"The draft totals {abs(flt(pi.grand_total))}, the supplier's invoice {expected}. Check rates and taxes."
+	# Rates are now as this site holds them: bring the totals to the supplier's.
+	if mapped and (flt(pi.discount_amount) or flt(pi.additional_discount_percentage)):
+		ours = (
+			f"{flt(pi.additional_discount_percentage):g}%"
+			if flt(pi.additional_discount_percentage)
+			else f"{flt(pi.discount_amount):,.2f}"
 		)
-	vat = totals.get("tax_amount")
-	if vat not in (None, "") and abs(abs(flt(pi.total_taxes_and_charges)) - flt(vat)) > 0.01:
 		notes.append(
-			f"VAT on the draft is {abs(flt(pi.total_taxes_and_charges))}, on the supplier's invoice {flt(vat)}: "
-			"claim only what the invoice states."
+			f"Our receipt or order gives an invoice discount of {ours}; the draft takes the supplier's "
+			"invoice-level allowances instead. Check them against the order."
 		)
+	result = reconcile.apply(pi, document)
+	pi.flags.ignore_mandatory = True
+	pi.save(ignore_permissions=True)
+	notes += reconcile.explain(pi, result)
+	notes += reconcile.differences(pi, document, lines=False)
 
 	record.purchase_invoice = pi.name
 	record.status = "Purchase Invoice Created"
@@ -249,21 +251,36 @@ def create_purchase_invoice(name: str) -> str:
 	return pi.name
 
 
-def _note_rounded_price(row, line: dict, notes: list):
-	"""Say so when the supplier's price has more decimals than the site keeps for rates: ERPNext
-	rounds it, so the line, its VAT and the total come out different from the invoice."""
-	price = cstr(line.get("unit_price")).strip()
-	decimals = len(price.partition(".")[2].rstrip("0"))
-	precision = row.precision("rate")
-	if decimals <= precision or abs(flt(row.rate) - flt(price, precision)) > 1e-9:
-		return  # not rounded, or the rate is ours rather than theirs
-	expected = line.get("line_extension_amount")
-	if expected in (None, "") or abs(flt(row.amount) - flt(expected)) < 0.01:
+def _set_exchange_rate(pi, document: dict, notes: list):
+	"""The supplier's exchange rate, at which the e-invoice states its AED amounts. ERPNext refuses
+	to bill stock received at another rate unless Buying Settings adjust the landed cost to the
+	invoice, so a draft billing such a receipt keeps the receipt's rate, and says so."""
+	rate = flt(document.get("currency_exchange_rate"))
+	if not rate or pi.currency == frappe.get_cached_value("Company", pi.company, "default_currency"):
 		return
-	notes.append(
-		f"Line {line.get('id')}: the supplier's price {flt(price)} has more decimals than this site keeps for "
-		f"rates ({precision}), so the line comes to {flt(row.amount)} against the supplier's {flt(expected)}."
-	)
+	receipts = {row.purchase_receipt for row in pi.items if row.get("purchase_receipt")}
+	if receipts and not cint(
+		frappe.db.get_single_value("Buying Settings", "set_landed_cost_based_on_purchase_invoice_rate")
+	):
+		held = [
+			receipt
+			for receipt in frappe.get_all(
+				"Purchase Receipt",
+				filters={"name": ("in", list(receipts)), "currency": pi.currency},
+				fields=["name", "conversion_rate"],
+			)
+			if flt(receipt.conversion_rate) and flt(receipt.conversion_rate) != rate
+		]
+		if held:
+			pi.conversion_rate = flt(held[0].conversion_rate)
+			notes.append(
+				f"The supplier's exchange rate is {rate:g}; Purchase Receipt {held[0].name} is at "
+				f"{pi.conversion_rate:g}, which the draft keeps: ERPNext bills received stock at the receipt's "
+				"rate unless Buying Settings > Set Landed Cost Based on Purchase Invoice Rate is on. The AED "
+				"amounts then differ from the e-invoice's."
+			)
+			return
+	pi.conversion_rate = rate
 
 
 def placeholder_item() -> str | None:
@@ -414,22 +431,27 @@ def _bill(row, line: dict, same_rate: int, settings, notes: list):
 	more than waits to be billed there: ERPNext refuses to save that, so the reviewer decides."""
 	label = f"Line {line.get('id')}"
 	source = row.get("purchase_receipt") or row.get("purchase_order")
-	qty, rate = flt(line.get("quantity")), flt(line.get("unit_price"))
+	qty, rate = flt(line.get("quantity")), reconcile.unit_rate(line)
+	number = reconcile.written
 	if qty > flt(row.qty):
-		notes.append(f"{label}: bills {qty}, but {flt(row.qty)} wait to be billed on {source}; the draft bills {flt(row.qty)}.")
+		notes.append(
+			f"{label}: bills {number(qty)}, but {number(row.qty)} wait to be billed on {source}; the draft bills {number(row.qty)}."
+		)
 	else:
 		row.qty = qty
 	uom = _uom_for(line.get("uom"), settings)
 	if uom and uom != row.uom:
 		notes.append(f"{label}: the supplier bills in {uom}, {source} is in {row.uom}; check the quantity.")
-	if abs(rate - flt(row.rate)) < 0.005:
-		return
+	precision = row.precision("rate")
+	if flt(rate, precision) == flt(row.rate, precision):
+		return  # the same price, as far as this site holds prices
+	theirs, ours = number(rate), number(row.rate)
 	if same_rate:
-		notes.append(f"{label}: the supplier charges {rate}, {source} {flt(row.rate)}; kept ours, as Buying Settings keep the same rate.")
+		notes.append(f"{label}: the supplier charges {theirs}, {source} {ours}; kept ours, as Buying Settings keep the same rate.")
 	elif rate > flt(row.rate):
-		notes.append(f"{label}: the supplier charges {rate}, more than the {flt(row.rate)} on {source}; kept ours.")
+		notes.append(f"{label}: the supplier charges {theirs}, more than the {ours} on {source}; kept ours.")
 	else:
-		notes.append(f"{label}: the supplier charges {rate}, less than the {flt(row.rate)} on {source}; billed theirs.")
+		notes.append(f"{label}: the supplier charges {theirs}, less than the {ours} on {source}; billed theirs.")
 		row.update({"rate": rate, "price_list_rate": rate, "discount_percentage": 0, "discount_amount": 0})
 
 

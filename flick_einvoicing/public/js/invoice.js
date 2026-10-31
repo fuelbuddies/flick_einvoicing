@@ -47,6 +47,30 @@ if (!flick_einvoicing.invoice_form_registered) {
 			.then(({ message }) => show_check(message));
 	};
 
+	// The guide, opened at one of its sections.
+	flick_einvoicing.open_guide = (section) => {
+		frappe.flags.flick_guide_section = section;
+		frappe.set_route("Form", "E Invoicing Guide");
+	};
+
+	const run_action = (frm, action) => {
+		if (action.check) {
+			check_with_flick(frm);
+		} else if (action.guide) {
+			flick_einvoicing.open_guide(action.guide);
+		} else if (action.method) {
+			if (frm.is_dirty()) {
+				frappe.msgprint(__("Save the invoice first."));
+				return;
+			}
+			frappe
+				.call({ method: action.method, args: { name: frm.doc.name }, freeze: true })
+				.then(() => frm.reload_doc());
+		} else {
+			frappe.set_route(...action.route);
+		}
+	};
+
 	// Whether the banner's details are open: a per-browser choice, closed when storage is blocked.
 	const OPEN_KEY = "flick_einvoicing.banner_open";
 	const details_open = () => {
@@ -78,10 +102,16 @@ if (!flick_einvoicing.invoice_form_registered) {
 			const details = [...(banner.lines || [])];
 			if (banner.more) details.push(__("and {0} more", [banner.more]));
 			const open = details.length > 0 && details_open();
+			const actions = banner.actions || (banner.action ? [banner.action] : []);
 			const $banner = $(`<div class="form-message ${banner.color} flick-banner" style="padding: 6px 12px">
 				<div class="flick-banner-line d-flex align-items-center" style="gap: 12px; min-width: 0">
 					<b class="ellipsis">${esc(banner.title)}</b>
-					${banner.action ? `<a href="#" class="flick-banner-action text-nowrap" style="text-decoration: underline">${esc(banner.action.label)}</a>` : ""}
+					${actions
+						.map(
+							(action, index) =>
+								`<a href="#" class="flick-banner-action text-nowrap" data-index="${index}" style="text-decoration: underline">${esc(action.label)}</a>`
+						)
+						.join("")}
 					${details.length ? `<a href="#" class="flick-banner-toggle text-nowrap ml-auto" role="button"></a>` : ""}
 				</div>
 				${details.length ? `<ul class="flick-banner-details mb-0 mt-1 pl-4">${details.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>` : ""}
@@ -103,8 +133,7 @@ if (!flick_einvoicing.invoice_form_registered) {
 			});
 			$banner.find(".flick-banner-action").on("click", (event) => {
 				event.preventDefault();
-				if (banner.action.check) check_with_flick(frm);
-				else frappe.set_route(...banner.action.route);
+				run_action(frm, actions[$(event.currentTarget).data("index")]);
 			});
 			$messages.find(".flick-banner").remove();
 			$messages.append($banner).removeClass("hidden");
@@ -151,6 +180,51 @@ if (!flick_einvoicing.invoice_form_registered) {
 	frappe.ui.form.on("Sales Invoice", handlers);
 	frappe.ui.form.on("POS Invoice", handlers);
 	frappe.ui.form.on("Purchase Invoice", handlers);
+
+	// On a draft made from a received e-invoice, choosing our item for a line that waits on a
+	// placeholder keeps the supplier's price: ERPNext would put in our item's own price, or none.
+	frappe.ui.form.on("Purchase Invoice", {
+		refresh(frm) {
+			frm.flick_prices = null;
+			if (frm.doc.docstatus !== 0 || !frm.doc.einvoice_received || frm.is_new()) return;
+			const { name } = frm.doc;
+			frappe.xcall("flick_einvoicing.api.supplier_prices", { name }).then((info) => {
+				if (frm.doc.name !== name) return;
+				const items = {};
+				(frm.doc.items || []).forEach((row) => (items[row.name] = row.item_code));
+				frm.flick_prices = { ...info, items };
+			});
+		},
+	});
+	// ERPNext writes the fetched item's details onto the row, then fires price_list_rate, whose
+	// own handler (run after ours) puts our item's price in the rate: put the supplier's back after it.
+	const KEEP_FOR = 10000;
+	frappe.ui.form.on("Purchase Invoice Item", {
+		item_code(frm, cdt, cdn) {
+			const info = frm.flick_prices;
+			const row = locals[cdt][cdn];
+			if (!info || !row.einvoice_line_no) return;
+			const before = info.items[cdn];
+			info.items[cdn] = row.item_code;
+			const price = info.prices[String(row.einvoice_line_no)];
+			if (price !== undefined && info.placeholders.includes(before) && !info.placeholders.includes(row.item_code)) {
+				row.__flick_price = { price, until: Date.now() + KEEP_FOR };
+			}
+		},
+		price_list_rate(frm, cdt, cdn) {
+			const row = locals[cdt][cdn];
+			const keep = row.__flick_price;
+			if (!keep) return;
+			delete row.__flick_price;
+			if (Date.now() > keep.until) return;
+			setTimeout(() => {
+				const decimals = precision("rate", row);
+				if (row.item_code && flt(row.rate, decimals) !== flt(keep.price, decimals)) {
+					frappe.model.set_value(cdt, cdn, "rate", keep.price);
+				}
+			}, 100);
+		},
+	});
 
 	// The tax template is what tells the e-invoice each line's VAT treatment, unless every line
 	// carries its own Item Tax Template. Opening invoices are never e-invoiced.

@@ -9,7 +9,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, cint, now_datetime, time_diff_in_seconds
 
-from flick_einvoicing.einvoice import code_lists, inbound, service, setup
+from flick_einvoicing.einvoice import code_lists, inbound, reconcile, service, setup
 from flick_einvoicing.einvoice import status as st
 from flick_einvoicing.einvoice.payload import invoice_problems
 from flick_einvoicing.einvoice.scope import settings_for, skip_reason
@@ -291,6 +291,8 @@ def invoice_banner(doctype: str, name: str) -> dict | None:
 
 
 def _invoice_banner(invoice) -> dict | None:
+	if invoice.doctype == "Purchase Invoice" and invoice.get("einvoice_received"):
+		return _received_banner(invoice)
 	if invoice.doctype == "Purchase Invoice" and not (
 		invoice.get("einvoice_submission")
 		or invoice.get("einvoice_received")
@@ -378,6 +380,87 @@ def _submission_banner(name: str) -> dict | None:
 	}
 
 
+def _received_banner(invoice) -> dict | None:
+	"""A purchase invoice made from a supplier's e-invoice: whether it still comes to the supplier's
+	figures, what differs where it doesn't, and which lines still wait for our item."""
+	if invoice.docstatus == 2:
+		return None
+	document = reconcile.document_of(invoice)
+	if not document:
+		return None
+	identifier = frappe.db.get_value(inbound.RECEIVED, invoice.einvoice_received, "document_identifier")
+	identifier = identifier or invoice.bill_no or invoice.einvoice_received
+	found = reconcile.differences(invoice, document)
+	result = reconcile.absorbed(invoice, document)
+	draft = invoice.docstatus == 0
+	precision = invoice.precision("grand_total")
+	actions = []
+
+	def money(value):
+		return reconcile.money(value, precision)
+
+	if not draft or reconcile.same(invoice.discount_amount, result.discount, invoice.precision("discount_amount")):
+		made_of = reconcile.explain(invoice, result)
+	else:
+		made_of = [
+			_(
+				"Matching to the e-invoice would make the Additional Discount {0}: the rounding and the supplier's "
+				"invoice-level allowances less charges, on the lines as they now stand."
+			).format(money(result.discount))
+		]
+		actions.append({"label": _("Match to e-invoice"), "method": "flick_einvoicing.api.match_einvoice"})
+	if draft and reconcile.vat_row_to_fix(invoice, document):
+		actions.append({"label": _("Use the supplier's VAT"), "method": "flick_einvoicing.api.use_supplier_vat"})
+	if not draft:
+		actions.append({"label": _("Received e-invoice"), "route": ["Form", inbound.RECEIVED, invoice.einvoice_received]})
+	actions.append({"label": _("How this works"), "guide": "receiving"})
+
+	held = inbound._placeholders(invoice.company)
+	waiting = [row for row in invoice.items if row.item_code in held] if draft else []
+	if waiting:
+		found.insert(
+			0,
+			_(
+				"Rows {0} wait on {1} until you choose our item. Choosing it here keeps the supplier's price; "
+				"elsewhere, ERPNext puts in our item's own price instead."
+			).format(", ".join(str(row.idx) for row in waiting), waiting[0].item_code),
+		)
+
+	supplier = reconcile.figures(document)
+	if supplier.total is None:
+		amounts = _("net {0} {1}").format(money(supplier.net), invoice.currency)
+	else:
+		amounts = _("net {0}, VAT {1}, total {2} {3}").format(
+			money(supplier.net), money(supplier.vat), money(supplier.total), invoice.currency
+		)
+	if not found:
+		title = (
+			_("Matches the supplier's e-invoice {0}: {1}.") if draft else _("Booked as the supplier's e-invoice {0} states it: {1}.")
+		).format(identifier, amounts)
+		return {"color": "green", "title": title, "lines": made_of, "actions": actions}
+	differs = len(found) - len(waiting[:1])
+	if not differs:
+		title = _("Matches the supplier's e-invoice {0}: {1}. Choose our item for {2} before submitting.").format(
+			identifier, amounts, _("1 line") if len(waiting) == 1 else _("{0} lines").format(len(waiting))
+		)
+	elif draft:
+		title = _("{0} from the supplier's e-invoice {1}: review before submitting.").format(
+			_("1 difference") if differs == 1 else _("{0} differences").format(differs), identifier
+		)
+	else:
+		title = _("Booked with {0} from the supplier's e-invoice {1}.").format(
+			_("1 difference") if differs == 1 else _("{0} differences").format(differs), identifier
+		)
+	lines = found + made_of
+	return {
+		"color": "orange" if draft else "blue",
+		"title": title,
+		"lines": lines[:BANNER_LINES],
+		"more": max(len(lines) - BANNER_LINES, 0),
+		"actions": actions,
+	}
+
+
 @frappe.whitelist()
 def check_peppol(doctype: str, name: str) -> dict:
 	if doctype not in ("Customer", "Supplier"):
@@ -404,6 +487,43 @@ def create_purchase_invoice(name: str) -> str:
 	frappe.has_permission("E Invoice Received", "write", doc=name, throw=True)
 	frappe.has_permission("Purchase Invoice", "create", throw=True)
 	return inbound.create_purchase_invoice(name)
+
+
+@frappe.whitelist()
+def supplier_prices(name: str) -> dict:
+	"""The supplier's price for each line of a draft made from a received e-invoice, and the items
+	that only hold a line: choosing our item on the form then keeps the supplier's price."""
+	invoice = frappe.get_doc("Purchase Invoice", name)
+	invoice.check_permission("read")
+	lines = reconcile.document_of(invoice).get("invoice_lines") or []
+	return {
+		"prices": {number: reconcile.unit_rate(line) for number, line in enumerate(lines, 1)},
+		"placeholders": sorted(inbound._placeholders(invoice.company)),
+	}
+
+
+def _received_draft(name: str):
+	invoice = frappe.get_doc("Purchase Invoice", name)
+	invoice.check_permission("write")
+	if invoice.docstatus != 0 or not invoice.get("einvoice_received"):
+		frappe.throw(_("Only a draft purchase invoice made from a received e-invoice can be matched to it."))
+	return invoice
+
+
+@frappe.whitelist(methods=["POST"])
+def match_einvoice(name: str) -> None:
+	"""Work the Additional Discount out again on the lines as they now stand, after a review."""
+	invoice = _received_draft(name)
+	reconcile.apply(invoice, reconcile.document_of(invoice))
+	invoice.save()
+
+
+@frappe.whitelist(methods=["POST"])
+def use_supplier_vat(name: str) -> None:
+	"""Charge the VAT the supplier's e-invoice states, where only rounding keeps ERPNext's apart."""
+	invoice = _received_draft(name)
+	reconcile.use_supplier_vat(invoice, reconcile.document_of(invoice))
+	invoice.save()
 
 
 @frappe.whitelist()

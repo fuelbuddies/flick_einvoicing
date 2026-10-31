@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\": \"flick-dashboard\", \"type\": \"custom_block\", \"data\": {\"custom_block_name\": \"Flick Dashboard\", \"col\": 12}}, {\"id\": \"flick-spacer\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"flick-sc-0\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Submissions\", \"col\": 3}}, {\"id\": \"flick-sc-1\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"E-Invoice Status\", \"col\": 3}}, {\"id\": \"flick-sc-2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Received\", \"col\": 3}}, {\"id\": \"flick-sc-3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Settings\", \"col\": 3}}, {\"id\": \"flick-card\", \"type\": \"card\", \"data\": {\"card_name\": \"E-Invoicing\", \"col\": 4}}]",
+ "content": "[{\"id\": \"flick-dashboard\", \"type\": \"custom_block\", \"data\": {\"custom_block_name\": \"Flick Dashboard\", \"col\": 12}}, {\"id\": \"flick-spacer\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"flick-sc-0\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Submissions\", \"col\": 3}}, {\"id\": \"flick-sc-1\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"E-Invoice Status\", \"col\": 3}}, {\"id\": \"flick-sc-2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Received\", \"col\": 3}}, {\"id\": \"flick-sc-3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Settings\", \"col\": 3}}, {\"id\": \"flick-sc-4\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Guide\", \"col\": 3}}, {\"id\": \"flick-card\", \"type\": \"card\", \"data\": {\"card_name\": \"E-Invoicing\", \"col\": 4}}]",
  "creation": "2026-10-28 22:00:00.000000",
  "custom_blocks": [
   {
@@ -22,7 +22,7 @@
    "hidden": 0,
    "is_query_report": 0,
    "label": "E-Invoicing",
-   "link_count": 5,
+   "link_count": 6,
    "onboard": 0,
    "type": "Card Break"
   },
@@ -75,9 +75,19 @@
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "E Invoicing Guide",
+   "link_count": 0,
+   "link_to": "E Invoicing Guide",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
   }
  ],
- "modified": "2026-10-29 14:00:00.000000",
+ "modified": "2026-10-31 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Flick E-Invoicing",
  "name": "Flick",
@@ -115,6 +125,13 @@
    "doc_view": "List",
    "label": "Settings",
    "link_to": "E Invoicing Settings",
+   "type": "DocType"
+  },
+  {
+   "color": "Blue",
+   "doc_view": "",
+   "label": "Guide",
+   "link_to": "E Invoicing Guide",
    "type": "DocType"
   }
  ],

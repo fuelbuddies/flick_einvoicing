@@ -58,6 +58,7 @@ function render_setup($wrapper, rows) {
 			}
 			<p class="text-muted small mb-0">
 				${__("Then, for every company: link the UOMs you invoice in to their unit codes (Code List {0}, Applies To); give customers a Peppol ID, their TRN in Tax ID and a billing address with its emirate; and before going live, open a saved draft invoice and click Check with Flick in its banner: Flick validates it without filing anything.", ["<b>UN/ECE Recommendation 20</b>"])}
+				<a href="/app/e-invoicing-guide">${__("Read the guide")}</a>: ${__("what the app does to invoices, and what it posts.")}
 			</p>
 		</div>
 	`);

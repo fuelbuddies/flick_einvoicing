@@ -1,0 +1,288 @@
+{%- set on = "on" -%}
+{%- set off = "off" -%}
+<div class="flick-guide">
+<style>
+	.flick-guide { max-width: 860px; font-size: var(--text-base, 14px); line-height: 1.6; color: var(--text-color); }
+	.flick-guide h2 { font-size: 1.5em; margin: 0 0 8px; color: var(--heading-color); }
+	.flick-guide h3 { font-size: 1.2em; margin: 32px 0 8px; padding-top: 16px; border-top: 1px solid var(--border-color); color: var(--heading-color); scroll-margin-top: 110px; }
+	.flick-guide h4 { font-size: 1em; font-weight: 600; margin: 20px 0 6px; color: var(--heading-color); scroll-margin-top: 110px; }
+	.flick-guide p, .flick-guide ul, .flick-guide ol { margin: 0 0 10px; }
+	.flick-guide li { margin-bottom: 4px; }
+	.flick-guide .lead { font-size: 1.05em; color: var(--text-muted); }
+	.flick-guide .box { border: 1px solid var(--border-color); border-radius: var(--border-radius-md, 8px); padding: 12px 16px; margin: 12px 0; }
+	.flick-guide .box dl { display: grid; grid-template-columns: minmax(180px, max-content) 1fr; gap: 4px 16px; margin: 0; }
+	.flick-guide .box dt { font-weight: 500; color: var(--text-muted); }
+	.flick-guide .box dd { margin: 0; }
+	.flick-guide .note { background: var(--bg-blue); color: var(--text-on-blue); border-radius: var(--border-radius-md, 8px); padding: 10px 14px; margin: 12px 0; }
+	.flick-guide .warn { background: var(--bg-orange); color: var(--text-on-orange); border-radius: var(--border-radius-md, 8px); padding: 10px 14px; margin: 12px 0; }
+	.flick-guide .note p:last-child, .flick-guide .warn p:last-child { margin-bottom: 0; }
+	.flick-guide table { width: 100%; border-collapse: collapse; margin: 8px 0 14px; font-variant-numeric: tabular-nums; }
+	.flick-guide th, .flick-guide td { border-bottom: 1px solid var(--border-color); padding: 6px 10px; text-align: left; vertical-align: top; }
+	.flick-guide th { font-weight: 600; color: var(--text-muted); }
+	.flick-guide td.num, .flick-guide th.num { text-align: right; white-space: nowrap; }
+	.flick-guide tr.total td { font-weight: 600; }
+	.flick-guide .toc { columns: 2; column-gap: 32px; padding-left: 18px; }
+	.flick-guide .toc a, .flick-guide a[data-flick-section] { cursor: pointer; }
+	.flick-guide code { font-size: 0.92em; }
+	@media (max-width: 640px) { .flick-guide .toc { columns: 1; } .flick-guide .box dl { grid-template-columns: 1fr; } }
+</style>
+
+<h2>UAE e-invoicing: what the app does, and what it does to your books</h2>
+<p class="lead">
+	This app files your invoices with the FTA through Flick, an accredited service provider, and brings in the
+	e-invoices your suppliers send you. Sending never changes a figure on your invoices. Receiving makes draft
+	purchase invoices, and where a draft's figures are filled in for you, this guide says which fields, how,
+	and what they post.
+</p>
+
+<div class="box">
+	<b>On this site</b> <span class="text-muted">(read from its settings as you opened this page)</span>
+	<dl class="mt-2">
+		<dt>Decimals kept</dt>
+		<dd>rates {{ site.rate_decimals }}, amounts {{ site.amount_decimals }}, VAT {{ site.vat_decimals }}{% if site.vat_decimals > 2 %}: the e-invoice states money in fils (2 decimals){% endif %}</dd>
+		<dt>Rounding Method</dt>
+		<dd>{{ site.rounding_method|e }}:
+			{%- if site.rounding_method == "Commercial Rounding" %} half a fil is rounded up, as Flick rounds it.
+			{%- elif site.rounding_method == "Banker's Rounding" %} half a fil goes to the even fil; Flick rounds it up, so about one VAT amount in forty differs by a fil (see <a data-flick-section="vat">VAT</a>).
+			{%- else %} half a fil is rounded up on invoices, as Flick rounds it, and towards zero on credit notes.
+			{%- endif %}
+			<span class="text-muted">(System Settings)</span></dd>
+		<dt>Round Tax Amount Row-wise</dt>
+		<dd>{{ on if site.row_wise_tax else off }}{% if site.row_wise_tax %}: VAT is rounded line by line, the e-invoice rounds it once per category{% endif %} <span class="text-muted">(Accounts Settings)</span></dd>
+		<dt>Maintain Same Rate</dt>
+		<dd>{{ on if site.same_rate else off }}{% if site.same_rate %}: a draft billing our order keeps our rate even where the supplier charges less{% endif %} <span class="text-muted">(Buying Settings)</span></dd>
+		<dt>Set Landed Cost Based on Purchase Invoice Rate</dt>
+		<dd>{{ on if site.landed_cost else off }}: {% if site.landed_cost %}submitting a purchase invoice revalues the stock received on its receipts at the invoice's rate{% else %}a purchase invoice billing a receipt at another rate leaves the difference in Stock Received But Not Billed{% endif %} <span class="text-muted">(Buying Settings)</span></dd>
+		<dt>Item for unmatched lines</dt>
+		<dd>{{ (site.placeholder or "none on this site")|e }}{% if site.placeholder %}, unless a company names its own (below){% endif %}</dd>
+	</dl>
+</div>
+
+<ol class="toc">
+	<li><a data-flick-section="short">In short</a></li>
+	<li><a data-flick-section="sending">Invoices you send</a></li>
+	<li><a data-flick-section="receiving">Invoices you receive</a></li>
+	<li><a data-flick-section="reconcile">Bringing a draft to the supplier's figures</a></li>
+	<li><a data-flick-section="books">What a draft posts</a></li>
+	<li><a data-flick-section="vat">VAT: claim what the invoice states</a></li>
+	<li><a data-flick-section="review">Reviewing a draft</a></li>
+	<li><a data-flick-section="settings">Settings that decide the figures</a></li>
+</ol>
+
+<h3 id="flick-guide-short">1. In short</h3>
+<ul>
+	<li><b>Sending</b> states on the e-invoice what ERPNext has. Where ERPNext's figures can't be stated as they are (VAT that isn't 5% of the standard-rated amount, a negative discount without a reason code), the submit stops and says what to fix. The app adds no ledger entries.</li>
+	<li><b>Receiving</b> makes draft purchase invoices for review, never submitted for you. A draft takes the supplier's lines and comes to the supplier's totals through two standard fields: <b>Additional Discount</b> and <b>Disable Rounded Total</b>.</li>
+	<li><b>Correcting</b> an invoice Flick has accepted takes a credit note: it can't be cancelled. Nothing is ever reissued automatically.</li>
+</ul>
+
+<h3 id="flick-guide-sending">2. Invoices you send</h3>
+
+<h4>Which invoices are e-invoiced</h4>
+<p>
+	Sales and POS invoices, and purchase invoices from suppliers with a self-billing agreement, of each company
+	whose E Invoicing Settings are enabled. Not opening invoices, invoices posted before the company's start
+	date, consolidated POS invoices (their POS invoices are filed one by one), purchase invoices made from a
+	received e-invoice (the supplier filed it), and, where the company's settings say so, B2C sales and internal
+	customers. Each invoice's banner says which applies.
+</p>
+
+<h4>On submit</h4>
+<p>
+	The app checks the invoice (tax treatment, party identifiers, addresses, units, totals) and stops the submit
+	with everything missing. It then creates an E Invoice Submission and sends it to Flick: right away in Live
+	mode, within ten minutes in Batch mode. With <i>Validate with Flick before Submit</i>, Flick validates it while
+	it is submitted. Flick reports it to the FTA and delivers it to the buyer over Peppol; the submission follows
+	both until they finish. The ledger entries are ERPNext's own, made on submit as always.
+</p>
+
+<h4>Amounts on the e-invoice</h4>
+<ul>
+	<li>Money is stated in fils, 2 decimals, whatever this site keeps. Unit prices and quantities go with up to 6 decimals.</li>
+	<li>Flick works VAT out per VAT category, 5% of the standard-rated amount, rounding half a fil up. Before submitting, the app checks ERPNext's VAT against that and allows one fil either way.</li>
+	<li>The amount due is ERPNext's grand total, or its rounded total. A difference between that and net plus VAT goes on the e-invoice as a rounding amount, so the buyer owes what your books say.</li>
+</ul>
+
+<h4>Discounts and charges</h4>
+<ul>
+	<li>A line's own discount shows as a price discount: the gross price and the discount off it.</li>
+	<li>The invoice's Additional Discount goes as an allowance per VAT category, reason {{ discount_reason_code }} "Discount", unless the company's <i>Invoice Discount</i> is set to spread it over the lines, or prices include tax: then it is folded into the lines' amounts. The totals are the same either way.</li>
+	<li>A negative Additional Discount raises the total, to round it up, say. PINT-AE has no negative allowance, so it goes as a charge with the company's <i>Reason Code for Negative Discounts</i>; until one is set, such invoices are stopped.</li>
+	<li>A charge in the taxes table, such as freight, needs its account mapped under <i>Charge Accounts</i> with a reason code and VAT category, charged "Actual". Every other row must be VAT, on the net total or on a previous row.</li>
+</ul>
+
+<h4>Foreign currency</h4>
+<p>
+	Invoices may be in any currency. The e-invoice states the exchange rate, and the VAT and total in AED worked
+	out at the invoice's conversion rate; Flick does not derive them.
+</p>
+
+<h4>Correcting an invoice</h4>
+<ul>
+	<li>An invoice can be cancelled only before it reached Flick, or once both of its tracks failed for good and Flick released its number. Otherwise make a credit note from it (Create &gt; Return / Credit Note), with its reason.</li>
+	<li>A credit note names the invoice it corrects: Return Against, or under Preceding Invoices for one from a previous system. Only reason VD (volume discount) stands alone.</li>
+	<li>A submission Flick refused (Rejected) filed nothing: fix the cause, then Retry.</li>
+</ul>
+
+<h3 id="flick-guide-receiving">3. Invoices you receive</h3>
+
+<h4>What arrives</h4>
+<p>
+	With <i>Receive Invoices</i> on, each e-invoice a supplier sends you arrives within minutes as an
+	<b>E Invoice Received</b> record: the supplier matched by Peppol ID, then TRN, with Flick's PDF and the UBL
+	attached. Flick reports the receipt to the FTA itself. The record posts nothing.
+</p>
+
+<h4>The draft purchase invoice</h4>
+<p><i>Create Purchase Invoice</i> on the record, or <i>Create Draft Purchase Invoices</i> in settings, makes a draft:</p>
+<ul>
+	<li><b>From your receipts and orders</b> when the supplier quotes them: your Purchase Receipt, their delivery note (your receipt's Supplier Delivery Note) or your Purchase Order. Receipts come first; an order is used itself only while nothing has been received against it. A draft never bills more, or at a higher price, than waits there.</li>
+	<li><b>Items</b> are matched by the supplier's code (Supplier Items on your item), then the barcode (GTIN), then your own code if the supplier sent it. Never by name.</li>
+	<li><b>Unmatched lines</b> wait on the item for unmatched lines, and the invoice can't be submitted while a line does. With no such item at all, a line stays without an item, booked to the company's default expense account.</li>
+	<li><b>Rates</b> are the supplier's price for one unit after the line's own allowances and charges: the line's amount over its quantity. That takes in a price given for 100 units, say, and a discount on the line.</li>
+	<li><b>Taxes</b> come from your receipt or order, else the company's <i>Purchase Taxes for Standard-Rated Lines</i>; lines in other VAT categories get the Item Tax Template mapped to theirs.</li>
+	<li><b>Exchange rate</b>: the supplier's, at which the e-invoice states its AED amounts. ERPNext refuses to bill stock received at another rate unless <i>Set Landed Cost Based on Purchase Invoice Rate</i> is on (this site: {{ on if site.landed_cost else off }}), so a draft billing such a receipt keeps the receipt's rate, and its notes say so.</li>
+</ul>
+<p>What the draft could not match (items, quantities, prices, units) is listed in the record's notes and in the draft's banner.</p>
+
+<h3 id="flick-guide-reconcile">4. Bringing a draft to the supplier's figures</h3>
+<p>
+	ERPNext keeps rates to {{ site.rate_decimals }} decimals on this site, a supplier may price to six. At 2
+	decimals a price of 0.996 becomes 1.00, and 1,000 units come to 1,000.00 instead of 996.00. Keeping more
+	decimals for rates would change every form on the site, so the draft uses two standard fields instead:
+</p>
+<ol>
+	<li><b>Additional Discount</b>, applied on the Net Total: the rounding on lines billed exactly as the supplier states them, plus the supplier's own invoice-level allowances, less its invoice-level charges. It is negative where rounding went the other way or charges outweigh allowances: a negative discount raises the total.</li>
+	<li><b>Disable Rounded Total</b>, on: the amount due is the invoice's exact total, as the e-invoice states it. It stays off only where ERPNext's rounding gives exactly the amount the supplier rounded to.</li>
+</ol>
+
+<p><b>A price with more decimals than the site keeps</b> (a site keeping 2 decimals for rates)</p>
+<table>
+	<tr><th></th><th class="num">Supplier's e-invoice</th><th class="num">Draft</th></tr>
+	<tr><td>1,000 units at 0.996</td><td class="num">996.00</td><td class="num">1,000 at 1.00 = 1,000.00</td></tr>
+	<tr><td>Additional Discount</td><td class="num"></td><td class="num">4.00</td></tr>
+	<tr><td>Net total</td><td class="num">996.00</td><td class="num">996.00</td></tr>
+	<tr><td>VAT 5%</td><td class="num">49.80</td><td class="num">49.80</td></tr>
+	<tr class="total"><td>Total</td><td class="num">1,045.80</td><td class="num">1,045.80</td></tr>
+</table>
+
+<p><b>The supplier's invoice-level allowance and charge</b></p>
+<table>
+	<tr><th></th><th class="num">Supplier's e-invoice</th><th class="num">Draft</th></tr>
+	<tr><td>Lines</td><td class="num">1,800.00</td><td class="num">1,800.00</td></tr>
+	<tr><td>Allowance (standard rated)</td><td class="num">−10.00</td><td class="num" rowspan="2">Additional Discount −40.00</td></tr>
+	<tr><td>Freight charge (standard rated)</td><td class="num">+50.00</td></tr>
+	<tr><td>Net total</td><td class="num">1,840.00</td><td class="num">1,840.00</td></tr>
+	<tr><td>VAT 5%</td><td class="num">92.00</td><td class="num">92.00</td></tr>
+	<tr class="total"><td>Total</td><td class="num">1,932.00</td><td class="num">1,932.00</td></tr>
+</table>
+
+<div class="note">
+	<p><b>Never absorbed.</b> A quantity held to what waits on your receipt or order, your lower price kept
+	(the supplier charges more{% if site.same_rate %}, or Maintain Same Rate keeps ours{% endif %}), lines you take off
+	or add, and your order's own invoice discount (the draft takes the supplier's instead, and the notes say what
+	yours was). Those differences stay: the draft then doesn't match, and its banner lists each one.</p>
+</div>
+
+<h3 id="flick-guide-books">5. What a draft posts</h3>
+<p>
+	ERPNext has no separate account for a purchase invoice's Additional Discount. It spreads the discount over the
+	lines in proportion to their net amounts, settling any leftover fil on the lines so they add up to the net total
+	exactly, and posts each line at its reduced net amount:
+</p>
+<ul>
+	<li><b>Services and non-stock items</b>: the line's expense account.</li>
+	<li><b>Stock items</b> (perpetual inventory): Stock Received But Not Billed. Your receipt credited that account
+		at the receipt's value; the invoice debits it at its own. Where the two differ (the supplier's price, rounding,
+		its allowances and charges), {% if site.landed_cost %}this site revalues the receipt's stock at the invoice's net
+		rate when the invoice is submitted, since Set Landed Cost Based on Purchase Invoice Rate is on{% else %}the
+		difference stays in Stock Received But Not Billed on this site, since Set Landed Cost Based on Purchase Invoice
+		Rate is off; with it on, submitting the invoice would revalue the receipt's stock at the invoice's net rate
+		instead{% endif %}.</li>
+	<li><b>Lines without an item</b>: their expense account.</li>
+	<li><b>VAT</b>: worked out by ERPNext on the reduced net amounts and posted to the VAT account in the taxes table.</li>
+	<li><b>The supplier</b>: credited with the total, which is the e-invoice's amount due. Nothing goes to Round Off, since the total isn't rounded.</li>
+</ul>
+<p>For the first example above, with service lines:</p>
+<table>
+	<tr><th>Account</th><th class="num">Debit</th><th class="num">Credit</th></tr>
+	<tr><td>Expense account of the lines</td><td class="num">996.00</td><td class="num"></td></tr>
+	<tr><td>Input VAT</td><td class="num">49.80</td><td class="num"></td></tr>
+	<tr><td>Supplier (Creditors)</td><td class="num"></td><td class="num">1,045.80</td></tr>
+</table>
+<p>
+	So a rounding discount takes the cost back to what the supplier actually charged; an allowance lowers it as the
+	supplier gave it; a charge raises it, the way freight on goods becomes part of their cost. The app doesn't book
+	a supplier's charges to accounts of their own.
+</p>
+<p>
+	<b>Credit notes</b> from suppliers become return purchase invoices (debit notes) against the original, found by
+	the invoice number the credit note quotes. Their quantities are negative, and so is the Additional Discount; they
+	reverse cost or stock and input VAT for what they credit.
+</p>
+<p>
+	<b>Amount due.</b> Where the supplier rounds its amount due and ERPNext's rounding gives another figure, the banner
+	says so: settle the difference when paying. Where the supplier counts an amount as paid already, allocate that
+	advance (Get Advances Paid) before submitting.
+</p>
+
+<h3 id="flick-guide-vat">6. VAT: claim what the invoice states</h3>
+<p>
+	The input VAT you claim is the VAT on the supplier's tax invoice. With the net total matching, ERPNext's VAT
+	matches too, except:
+</p>
+<ul>
+	{%- if site.vat_decimals > 2 %}
+	<li><b>VAT to {{ site.vat_decimals }} decimals</b> (this site): 5% of 157.30 is 7.865 here; the e-invoice says 7.87. This touches most invoices.</li>
+	{%- endif %}
+	<li><b>Half a fil</b>{% if site.rounding_method == "Banker's Rounding" %} (this site){% endif %}: with Rounding Method set to Banker's Rounding, half a fil goes to the even fil, so 7.865 becomes 7.86 while Flick says 7.87; about one VAT amount in forty. Commercial Rounding matches Flick.</li>
+	<li><b>Round Tax Amount Row-wise</b>{% if site.row_wise_tax %} (on here){% endif %}: VAT rounded line by line can drift from VAT rounded once per category.</li>
+	<li><b>Mixed VAT categories</b>: the Additional Discount spreads over every line, so an allowance the supplier gave on standard-rated lines also lowers your zero-rated ones, and the standard-rated amount and its VAT come out different. The banner names the category.</li>
+</ul>
+<p>
+	The banner says when VAT differs and why. Where the lines and net total match and only rounding is left,
+	<b>Use the supplier's VAT</b> sets the VAT row to "Actual" with the supplier's amount. Do that last: an Actual
+	row no longer follows the lines, so after changing a line, set its Type back to "On Net Total". With mixed
+	categories, put it right by hand: move the allowance into the rates of the lines it belongs to and out of the
+	Additional Discount, or enter the supplier's VAT as an Actual amount.
+</p>
+
+<h3 id="flick-guide-review">7. Reviewing a draft</h3>
+<ol>
+	<li><b>Read the banner.</b> Green: the draft comes to the supplier's figures. Orange: each difference is listed.</li>
+	<li><b>Lines on the item for unmatched lines</b>: choose your item. On the invoice form the line keeps the supplier's price; ERPNext on its own would put in your item's price, or none. Anywhere else, such as Update Items or an import, check the rate afterwards: the banner shows yours against the supplier's.</li>
+	<li><b>Quantities and prices held to your receipt or order</b>: decide. Pay what the supplier asks by changing the line, or keep yours and take it up with the supplier; their credit note settles it.</li>
+	<li><b>After changing lines</b>, click <b>Match to e-invoice</b>: it works the Additional Discount out again on the lines as they stand.</li>
+	<li><b>VAT differs by rounding only</b>: <b>Use the supplier's VAT</b>.</li>
+	<li><b>Submit.</b> Submitting remembers each supplier code against the item you chose, so the next invoice matches it by itself.</li>
+</ol>
+
+<h3 id="flick-guide-settings">8. Settings that decide the figures</h3>
+<p>Per company, from E Invoicing Settings:</p>
+{%- if companies %}
+<div style="overflow-x: auto">
+<table>
+	<tr>
+		<th>Company</th><th>Sending</th><th>Invoice discount</th><th>Receiving</th><th>Unmatched lines</th><th>Taxes for standard-rated lines</th>
+	</tr>
+	{%- for company in companies %}
+	<tr>
+		<td><b>{{ company.name|e }}</b></td>
+		<td>{% if company.enabled %}{{ company.environment|e }}, {{ (company.submission_mode or "Live")|e }}{% if company.validate_before_submit %}, Flick validates on submit{% endif %}{% if company.start_date %}, from {{ company.start_date|e }}{% endif %}{% if company.skip_b2c %}, B2C skipped{% endif %}{% else %}not enabled{% endif %}</td>
+		<td>{{ (company.discount_style or "Document-level allowance")|e }}; negative: {{ (company.negative_discount_reason_code or "no reason code, so stopped")|e }}</td>
+		<td>{% if company.receive_invoices %}on{% if company.auto_create_purchase_invoice %}, drafts made as they arrive{% endif %}{% else %}off{% endif %}</td>
+		<td>{{ (company.purchase_item or site.placeholder or "kept without an item")|e }}</td>
+		<td>{{ (company.purchase_taxes_template or "none")|e }}</td>
+	</tr>
+	{%- endfor %}
+</table>
+</div>
+{%- else %}
+<p class="text-muted">No company has E Invoicing Settings yet.</p>
+{%- endif %}
+<p>
+	Elsewhere: <i>Tax Treatments</i> map each VAT template to its category, <i>Charge Accounts</i> map charges sent in
+	the taxes table, and the units of measure are linked to codes in the Code List <i>UN/ECE Recommendation 20</i>.
+	The site settings at the top of this page apply to every company.
+</p>
+</div>

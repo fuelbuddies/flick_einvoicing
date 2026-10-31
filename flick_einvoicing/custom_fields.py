@@ -340,7 +340,18 @@ def get_custom_fields() -> dict[str, list[dict]]:
 				"read_only": 1,
 				"depends_on": "eval:doc.einvoice_supplier_item_code",
 				"description": "From the supplier's e-invoice. Submitting remembers it on the item chosen here.",
-			}
+			},
+			{
+				"fieldname": "einvoice_line_no",
+				"label": "E-Invoice Line",
+				"fieldtype": "Int",
+				"insert_after": "einvoice_supplier_item_code",
+				"read_only": 1,
+				"hidden": 1,
+				"no_copy": 1,
+				"print_hide": 1,
+				"description": "The line of the supplier's e-invoice this row bills, counted from 1.",
+			},
 		],
 		"Item": [
 			{

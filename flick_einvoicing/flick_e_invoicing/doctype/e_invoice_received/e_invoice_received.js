@@ -23,5 +23,13 @@ frappe.ui.form.on("E Invoice Received", {
 		if (frm.doc.purchase_invoice) {
 			frm.add_custom_button(__("Purchase Invoice"), () => frappe.set_route("Form", "Purchase Invoice", frm.doc.purchase_invoice), __("View"));
 		}
+		frm.add_custom_button(
+			__("How drafts are made"),
+			() => {
+				frappe.flags.flick_guide_section = "receiving";
+				frappe.set_route("Form", "E Invoicing Guide");
+			},
+			__("View")
+		);
 	},
 });

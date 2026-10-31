@@ -7,10 +7,19 @@ from erpnext.accounts.doctype.purchase_invoice.purchase_invoice import make_debi
 from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_sales_return
 from erpnext.buying.doctype.purchase_order.purchase_order import make_purchase_receipt
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import add_days, today
+from frappe.utils import add_days, flt, today
+from frappe.utils.data import round_based_on_smallest_currency_fraction
 
-from flick_einvoicing.api import charge_reasons, dashboard, einvoicing_enabled, invoice_banner
-from flick_einvoicing.einvoice import code_lists, inbound, service, setup
+from flick_einvoicing.api import (
+	charge_reasons,
+	dashboard,
+	einvoicing_enabled,
+	invoice_banner,
+	match_einvoice,
+	supplier_prices,
+	use_supplier_vat,
+)
+from flick_einvoicing.einvoice import code_lists, guide, inbound, reconcile, service, setup
 from flick_einvoicing.einvoice import status as st
 from flick_einvoicing.einvoice.payload import build_payload, check_keys, invoice_problems
 from flick_einvoicing.einvoice.scope import settings_for
@@ -1273,7 +1282,7 @@ class TestReceivingAgainstOrders(FlowTestCase):
 		TestReceiving.default_branch_of_test_company(self)
 		self.cable = _item(f"{PREFIX} Cable", "Cable")
 
-	def received(self, lines, **document):
+	def received(self, lines, supplier=None, **document):
 		"""An E Invoice Received record as receive() stores one, without asking Flick."""
 		identifier = f"SUP-{frappe.generate_hash(length=8)}"
 		document = {
@@ -1294,8 +1303,8 @@ class TestReceivingAgainstOrders(FlowTestCase):
 					"document_identifier": identifier,
 					"document_type": "380",
 					"issue_date": today(),
-					"supplier": self.fx.supplier,
-					"currency": "AED",
+					"supplier": supplier or self.fx.supplier,
+					"currency": document["document_currency"],
 					"document_json": json.dumps(document),
 				}
 			)
@@ -1417,11 +1426,13 @@ class TestReceivingAgainstOrders(FlowTestCase):
 			[(self.fx.phone, 2, 100, True), (self.cable, 3, 9, True), (self.fx.item, 1, 50, False)],
 		)
 		notes = self.notes(name)
-		self.assertIn("Line 1: bills 5.0, but 2.0 wait to be billed", notes)
-		self.assertIn("Line 1: the supplier charges 120.0, more than the 100.0", notes)
-		self.assertIn("Line 2: the supplier charges 9.0, less than the 10.0", notes)
+		self.assertIn("Line 1: bills 5, but 2 wait to be billed", notes)
+		self.assertIn("Line 1: the supplier charges 120, more than the 100", notes)
+		self.assertIn("Line 2: the supplier charges 9, less than the 10", notes)
 		self.assertIn("Line 3 (Supplier's line 3) is on none of the receipts or orders it quotes.", notes)
-		self.assertIn("The draft totals", notes)
+		# What our order holds back is not absorbed: the draft stays short of the supplier's figures.
+		self.assertEqual(pi.discount_amount, 0)
+		self.assertIn("Net total 277.00, the supplier's 677.00.", notes)
 
 	def test_line_reviewed_to_our_item_is_remembered(self):
 		name = self.received([self.line(1, 1, 40, "NEW-77"), self.line(2, 1, 50, "NOPE")])
@@ -1476,17 +1487,18 @@ class TestReceivingAgainstOrders(FlowTestCase):
 			(None, "Supplier's line 1", frappe.get_cached_value("Company", self.fx.company.name, "default_expense_account")),
 		)
 
-	def test_price_with_more_decimals_than_the_site_keeps_is_explained(self):
+	def test_price_with_more_decimals_than_the_site_keeps_comes_to_the_suppliers_total(self):
 		# 1000 at 0.123456 is 123.46; a site keeping 2 or 3 decimals for rates can't say that.
 		name = self.received(
 			[self.line(1, 1000, 0.123456, "SUP-PHONE", unit_price="0.123456", line_extension_amount="123.46")],
 			invoice_totals={"payable_amount": "129.63", "tax_amount": "6.17"},
 		)
-		inbound.create_purchase_invoice(name)
+		pi = frappe.get_doc("Purchase Invoice", inbound.create_purchase_invoice(name))
+		self.assertEqual((pi.apply_discount_on, pi.disable_rounded_total), ("Net Total", 1))
+		self.assertAlmostEqual(pi.discount_amount, flt(pi.items[0].amount) - 123.46)
+		self.assertAlmostEqual(pi.net_total, 123.46)
 		notes = self.notes(name)
-		self.assertIn("Line 1: the supplier's price 0.123456 has more decimals than this site keeps", notes)
-		self.assertIn("against the supplier's 123.46", notes)
-		self.assertIn("on the supplier's invoice 6.17: claim only what the invoice states", notes)
+		self.assertIn("from the supplier's prices on line 1, which have more decimals than the", notes)
 
 	def test_a_later_choice_moves_a_remembered_code(self):
 		gadget = _item(f"{PREFIX} Gadget", "Gadget")
@@ -1502,6 +1514,256 @@ class TestReceivingAgainstOrders(FlowTestCase):
 		self.assertEqual(inbound._order_line("PUR-ORD-2026-00012 / 10", orders), ("PUR-ORD-2026-00012", 10))
 		self.assertIsNone(inbound._order_line("PUR-ORD-2026-00012", orders))  # the order alone names no line
 		self.assertIsNone(inbound._order_line("LINE-A", orders))
+
+
+class TestMatchingTheEInvoice(FlowTestCase):
+	"""Drafts brought to the supplier's figures: the Additional Discount, the rounded total, the
+	supplier's VAT, and the banner a reviewer works from."""
+
+	TOTALS = ("tax_exclusive_amount", "tax_amount", "tax_inclusive_amount", "payable_amount")
+
+	def setUp(self):
+		TestReceiving.default_branch_of_test_company(self)
+
+	def line(self, id, qty, rate, code, **extra):
+		return TestReceivingAgainstOrders.line(self, id, qty, rate, code, **extra)
+
+	def draft(self, lines, totals, supplier=None, **document):
+		"""A received e-invoice and the draft made from it. Totals: net, VAT, total, payable."""
+		document["invoice_totals"] = {**dict(zip(self.TOTALS, totals)), **document.get("invoice_totals", {})}
+		name = TestReceivingAgainstOrders.received(self, lines, supplier, **document)
+		return name, frappe.get_doc("Purchase Invoice", inbound.create_purchase_invoice(name))
+
+	def banner(self, pi):
+		return invoice_banner("Purchase Invoice", pi.name)
+
+	def totals(self, pi):
+		return (flt(pi.net_total), flt(pi.total_taxes_and_charges), flt(pi.grand_total))
+
+	def use_rounding(self, method):
+		"""This site's Rounding Method, for this test only."""
+		before = frappe.db.get_single_value("System Settings", "rounding_method")
+
+		def put(value):
+			frappe.db.set_single_value("System Settings", "rounding_method", value)
+			frappe.clear_document_cache("System Settings", "System Settings")
+			frappe.local.system_settings = None
+
+		put(method)
+		self.addCleanup(put, before)
+
+	def test_price_rounding_goes_into_the_additional_discount(self):
+		# 1,000 at 0.996 is 996.00. A site keeping 2 decimals for rates bills them at 1.00.
+		name, pi = self.draft(
+			[self.line(1, 1000, 0, "SUP-PHONE", unit_price="0.996", line_extension_amount="996.00")],
+			("996.00", "49.80", "1045.80", "1045.80"),
+		)
+		self.assertEqual((pi.apply_discount_on, pi.disable_rounded_total), ("Net Total", 1))
+		self.assertAlmostEqual(pi.discount_amount, flt(pi.items[0].amount) - 996)
+		self.assertEqual(self.totals(pi), (996, 49.8, 1045.8))
+		banner = self.banner(pi)
+		self.assertEqual(banner["color"], "green")
+		self.assertIn("Matches the supplier's e-invoice", banner["title"])
+
+		pi.submit()
+		entries = frappe.get_all(
+			"GL Entry", filters={"voucher_no": pi.name, "is_cancelled": 0}, fields=["account", "debit", "credit"]
+		)
+		vat = sum(e.debit for e in entries if e.account == self.fx.vat)
+		self.assertEqual(sum(e.credit for e in entries if e.account == pi.credit_to), 1045.8)
+		self.assertEqual(vat, 49.8)
+		# The line costs what the supplier charged; no account takes the discount on its own.
+		self.assertAlmostEqual(sum(e.debit for e in entries) - vat, 996)
+		self.assertIn("Booked as the supplier's e-invoice", self.banner(pi)["title"])
+
+	def test_invoice_level_allowance_and_charge_net_into_the_discount(self):
+		name, pi = self.draft(
+			[self.line(1, 1, 1800, "SUP-PHONE", line_extension_amount="1800.00")],
+			("1840.00", "92.00", "1932.00", "1932.00"),
+			allowance_charges=[
+				{"charge_indicator": False, "amount": "10.00", "reason": "Discount", "tax_category": "S"},
+				{"charge_indicator": True, "amount": "50.00", "reason": "Freight", "tax_category": "S"},
+			],
+			invoice_totals={"allowance_total_amount": "10.00", "charge_total_amount": "50.00"},
+		)
+		# Charges outweigh the allowance: a negative discount raises the total.
+		self.assertEqual(pi.discount_amount, -40)
+		self.assertEqual(self.totals(pi), (1840, 92, 1932))
+		self.assertIn("-40.00 for the supplier's invoice-level allowances less charges", self.notes(name))
+
+	def test_line_allowance_and_price_base_quantity_set_the_rate(self):
+		name, pi = self.draft(
+			[
+				# 25.00 for 100 screws
+				self.line(1, 200, 25, "SUP-SCREW", base_quantity="100", line_extension_amount="50.00"),
+				# 100.00 less 10.00 off the line
+				self.line(
+					2,
+					1,
+					100,
+					"SUP-PHONE",
+					line_extension_amount="90.00",
+					allowance_charges=[{"charge_indicator": False, "amount": "10", "reason": "Discount"}],
+				),
+			],
+			("140.00", "7.00", "147.00", "147.00"),
+		)
+		self.assertEqual([flt(row.rate) for row in pi.items], [0.25, 90])
+		self.assertEqual((pi.discount_amount, *self.totals(pi)), (0, 140, 7, 147))
+
+	def test_credit_note_takes_a_negative_discount(self):
+		name, pi = self.draft(
+			[self.line(1, 10, 0, "SUP-PHONE", unit_price="0.996", line_extension_amount="9.96")],
+			("9.96", "0.50", "10.46", "10.46"),
+			document_type="381",
+		)
+		self.assertEqual(pi.is_return, 1)
+		self.assertAlmostEqual(pi.discount_amount, flt(pi.items[0].amount) + 9.96)
+		if flt(pi.total_taxes_and_charges) != -0.5:
+			# A site keeping 3 decimals works the VAT out to -0.498; the credit note says 0.50.
+			use_supplier_vat(pi.name)
+			pi.reload()
+		self.assertEqual(self.totals(pi), (-9.96, -0.5, -10.46))
+
+	def test_supplier_rounding_kept_only_when_erpnext_rounds_the_same(self):
+		lines = [self.line(1, 1, 100.40, "SUP-PHONE", line_extension_amount="100.40")]
+		# Rounded as ERPNext rounds AED: the rounded total stays on.
+		rounded = round_based_on_smallest_currency_fraction(105.42, "AED", 2)
+		name, pi = self.draft(
+			lines,
+			("100.40", "5.02", "105.42", f"{rounded:.2f}"),
+			invoice_totals={"payable_rounding_amount": f"{rounded - 105.42:.2f}"},
+		)
+		self.assertEqual((pi.disable_rounded_total, flt(pi.rounded_total)), (0, rounded))
+		self.assertEqual(self.banner(pi)["color"], "green")
+		# Rounded some other way: ERPNext can't follow, so the total stays exact and the banner says so.
+		name, pi = self.draft(
+			lines, ("100.40", "5.02", "105.42", "105.43"), invoice_totals={"payable_rounding_amount": "0.01"}
+		)
+		self.assertEqual(pi.disable_rounded_total, 1)
+		self.assertIn("The supplier rounds the amount due by 0.01", " ".join(self.banner(pi)["lines"]))
+
+	def test_match_works_the_discount_out_again_after_a_review(self):
+		name, pi = self.draft(
+			[
+				self.line(1, 1000, 0, "SUP-PHONE", unit_price="0.996", line_extension_amount="996.00"),
+				self.line(2, 1, 50, "NOPE", line_extension_amount="50.00"),
+			],
+			("1046.00", "52.30", "1098.30", "1098.30"),
+		)
+		discount = flt(pi.discount_amount)
+		# What the form keeps on a line when the reviewer chooses our item for it.
+		self.assertEqual(supplier_prices(pi.name)["prices"], {1: 0.996, 2: 50})
+		cable = _item(f"{PREFIX} Cable", "Cable")
+		# The reviewer bills only 500, and picks our item for line 2, which brings that item's own price.
+		pi.items[0].qty = 500
+		pi.items[1].item_code = cable
+		pi.items[1].rate = 30
+		pi.save()
+		banner = self.banner(pi)
+		self.assertEqual(banner["color"], "orange")
+		self.assertIn("Line 1: row 1 bills 500, the supplier 1,000.", banner["lines"])
+		self.assertIn("Line 2: row 2 is at 30, the supplier's price 50.", banner["lines"])
+		if discount:
+			# Line 1 no longer bills what the supplier states, so none of its rounding is absorbed.
+			self.assertIn("Match to e-invoice", [action["label"] for action in banner["actions"]])
+		match_einvoice(pi.name)
+		pi.reload()
+		self.assertEqual(pi.discount_amount, 0)
+
+		pi.items[0].qty = 1000
+		pi.items[1].rate = 50
+		pi.save()
+		match_einvoice(pi.name)
+		pi.reload()
+		self.assertEqual((flt(pi.discount_amount), *self.totals(pi)), (discount, 1046, 52.3, 1098.3))
+		self.assertEqual(self.banner(pi)["color"], "green")
+
+	def test_vat_a_fil_apart_takes_the_suppliers(self):
+		# 5% of 157.30 is 7.865: Flick rounds it up to 7.87. Banker's Rounding makes it 7.86, and a
+		# site keeping 3 decimals keeps 7.865.
+		self.use_rounding("Banker's Rounding")
+		name, pi = self.draft(
+			[self.line(1, 1, 157.30, "SUP-PHONE", line_extension_amount="157.30")],
+			("157.30", "7.87", "165.17", "165.17"),
+		)
+		self.assertNotEqual(flt(pi.total_taxes_and_charges), 7.87)
+		banner = self.banner(pi)
+		self.assertIn("claim only what the invoice states", " ".join(banner["lines"]))
+		self.assertIn("Use the supplier's VAT", [action["label"] for action in banner["actions"]])
+		use_supplier_vat(pi.name)
+		pi.reload()
+		self.assertEqual((pi.taxes[0].charge_type, *self.totals(pi)), ("Actual", 157.3, 7.87, 165.17))
+		self.assertEqual(self.banner(pi)["color"], "green")
+
+	def test_mixed_categories_say_where_the_discount_landed(self):
+		name, pi = self.draft(
+			[
+				self.line(1, 1, 100, "SUP-PHONE", line_extension_amount="100.00"),
+				self.line(2, 1, 100, "NOPE", tax_category="Z", tax_percentage="0", line_extension_amount="100.00"),
+			],
+			("190.00", "4.50", "194.50", "194.50"),
+			invoice_totals={"allowance_total_amount": "10.00"},
+			tax_totals=[
+				{"tax_category": "S", "taxable_amount": "90.00", "tax_amount": "4.50"},
+				{"tax_category": "Z", "taxable_amount": "100.00", "tax_amount": "0.00"},
+			],
+		)
+		self.assertEqual(pi.items[1].item_tax_template, self.fx.zero)
+		self.assertEqual(pi.net_total, 190)
+		lines = " ".join(self.banner(pi)["lines"])
+		self.assertIn("spreads over the lines of every VAT category", lines)
+		self.assertIn("Standard rated (5%) lines come to 95.00 after the discount, the supplier's taxable amount 90.00.", lines)
+		self.assertIsNone(reconcile.vat_row_to_fix(pi, reconcile.document_of(pi)))
+
+	def test_foreign_currency_takes_the_suppliers_exchange_rate(self):
+		company = self.fx.company
+		payable = frappe.db.get_value("Account", company.default_payable_account, "parent_account")
+		usd = frappe.get_doc(
+			{
+				"doctype": "Account",
+				"account_name": f"{PREFIX} Creditors USD {frappe.generate_hash(length=4)}",
+				"parent_account": payable,
+				"company": company.name,
+				"account_type": "Payable",
+				"account_currency": "USD",
+			}
+		).insert()
+		supplier = frappe.get_doc(
+			{
+				"doctype": "Supplier",
+				"supplier_name": f"{PREFIX} USD Supplier {frappe.generate_hash(length=4)}",
+				"supplier_group": frappe.db.get_value("Supplier Group", {"is_group": 0}, "name"),
+				"default_currency": "USD",
+				"accounts": [{"company": company.name, "account": usd.name}],
+			}
+		).insert()
+		# 105.00 USD at 3.6725: VAT 18.36 and total 385.61 in AED, as the e-invoice states them.
+		name, pi = self.draft(
+			[self.line(1, 1, 100, "ANY", line_extension_amount="100.00")],
+			("100.00", "5.00", "105.00", "105.00"),
+			supplier=supplier.name,
+			document_currency="USD",
+			currency_exchange_rate="3.6725",
+			invoice_totals={"total_tax_amount_in_aed": "18.36", "total_amount_with_tax_in_aed": "385.61"},
+		)
+		self.assertEqual((pi.currency, flt(pi.conversion_rate)), ("USD", 3.6725))
+		# To the fil; a site keeping 3 decimals converts to 18.362 and 385.612.
+		self.assertAlmostEqual(flt(pi.base_total_taxes_and_charges), 18.36, delta=0.005)
+		self.assertAlmostEqual(flt(pi.base_grand_total), 385.61, delta=0.005)
+		self.assertNotIn("VAT in AED", " ".join(self.banner(pi)["lines"]))
+
+	def test_guide_renders_with_this_sites_settings(self):
+		doc = frappe.get_doc("E Invoicing Guide")
+		doc.run_method("onload")
+		rendered = doc.get_onload().guide
+		self.assertIn('id="flick-guide-reconcile"', rendered)
+		self.assertIn(self.fx.company.name, rendered)
+		decimals = frappe.new_doc("Purchase Invoice Item").precision("rate")
+		self.assertIn(f"ERPNext keeps rates to {decimals} decimals on this site", rendered)
+
+	def notes(self, name):
+		return frappe.db.get_value("E Invoice Received", name, "notes") or ""
 
 
 class TestGuidance(FlowTestCase):

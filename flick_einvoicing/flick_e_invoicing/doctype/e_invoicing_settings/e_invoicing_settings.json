@@ -538,12 +538,13 @@
    "fieldname": "purchase_taxes_template",
    "fieldtype": "Link",
    "label": "Purchase Taxes for Standard-Rated Lines",
-   "options": "Purchase Taxes and Charges Template"
+   "options": "Purchase Taxes and Charges Template",
+   "description": "Charged on drafts made from received e-invoices with standard-rated lines, unless the receipt or order the draft is made from brings its own. Left empty, the company's default purchase taxes template is used."
   }
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-10-29 14:00:00.000000",
+ "modified": "2026-10-31 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Flick E-Invoicing",
  "name": "E Invoicing Settings",
