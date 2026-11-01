@@ -27,6 +27,14 @@ class EInvoiceSubmission(Document):
 				)
 			)
 
+	def before_submit(self):
+		# Submitted means Flick accepted it. A draft submitted by hand would never be sent.
+		if not self.flags.accepted_by_flick:
+			frappe.throw(
+				_("A submission is submitted only when Flick accepts it. Use Retry to send it."),
+				title=_("UAE e-invoicing"),
+			)
+
 	def before_cancel(self):
 		# Cancelling here never withdraws anything from the FTA. It is only allowed once Flick
 		# has released the number, which is when a corrected copy may be resubmitted.

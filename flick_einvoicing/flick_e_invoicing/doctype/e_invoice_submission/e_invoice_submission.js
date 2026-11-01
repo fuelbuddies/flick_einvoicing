@@ -14,6 +14,14 @@ const EINVOICE_COLORS = {
 frappe.ui.form.on("E Invoice Submission", {
 	refresh(frm) {
 		const doc = frm.doc;
+		if (doc.docstatus === 0) {
+			// Submitted means Flick accepted it; drafts are sent with Retry, never submitted by hand.
+			frm.disable_save();
+			frm.dashboard.clear_comment();
+		} else {
+			// Cancelled with its invoice, or replaced by Resubmit; never on its own.
+			frm.page.clear_secondary_action();
+		}
 		if (doc.next_action) {
 			frm.dashboard.set_headline_alert(
 				`<div>${frappe.utils.escape_html(doc.next_action)}</div>`,

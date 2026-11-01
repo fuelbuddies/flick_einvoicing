@@ -254,6 +254,7 @@ def _accept(sub, data: dict, settings, duplicate: bool) -> str:
 	sub.response_payload = json.dumps(data, indent=1)
 	sub.next_action = st.next_action(sub)
 	sub.flags.ignore_permissions = True
+	sub.flags.accepted_by_flick = True
 	sub.submit()
 	mirror(sub)
 	if duplicate or sub.status != st.PROCESSING:

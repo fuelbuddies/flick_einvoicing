@@ -920,6 +920,11 @@ class TestSending(FlowTestCase):
 		self.assertIn("receiving_party.emirates_code: Invalid enum value", sub.validation_errors)
 		self.assertTrue(st.can_cancel_invoice(sub)[0])
 
+	def test_only_flick_accepting_it_submits_a_submission(self):
+		si, sub = self.submitted_invoice()
+		self.assertRaises(frappe.ValidationError, sub.submit)
+		self.assertEqual(frappe.db.get_value(service.DOCTYPE, sub.name, "docstatus"), 0)
+
 	def test_no_answer_is_retried_and_blocks_cancel_until_checked(self):
 		si, sub = self.submitted_invoice()
 		with self.flick(

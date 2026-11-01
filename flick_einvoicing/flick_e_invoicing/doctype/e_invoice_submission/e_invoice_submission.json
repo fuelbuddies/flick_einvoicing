@@ -306,7 +306,7 @@
  "index_web_pages_for_search": 0,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-10-28 22:00:00.000000",
+ "modified": "2026-11-01 22:50:00.000000",
  "modified_by": "Administrator",
  "module": "Flick E-Invoicing",
  "name": "E Invoice Submission",
@@ -314,13 +314,11 @@
  "owner": "Administrator",
  "permissions": [
   {
-   "cancel": 1,
    "delete": 1,
    "export": 1,
    "read": 1,
    "report": 1,
    "role": "System Manager",
-   "submit": 1,
    "write": 1
   },
   {

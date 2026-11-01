@@ -169,7 +169,7 @@ def _invoice_fields(container: dict, received_link: bool = False) -> list[dict]:
 			"label": "Delivery",
 			"fieldtype": "Section Break",
 			"collapsible": 1,
-			"description": "The delivery address is the invoice's Shipping Address, and the Incoterm comes from the Terms tab.",
+			"description": "The delivery address is the invoice's Shipping Address, and the Incoterm is the one set under Taxes and Charges.",
 		},
 		{
 			"fieldname": "einvoice_delivery_date",
@@ -296,7 +296,7 @@ def get_custom_fields() -> dict[str, list[dict]]:
 						"label": "Peppol ID",
 						"fieldtype": "Data",
 						"depends_on": f"eval:(doc.einvoice_routing || '{codes.ROUTING_PEPPOL}') == '{codes.ROUTING_PEPPOL}'",
-						"description": "UAE e-invoicing address: 0235: followed by the 10-digit TIN, e.g. 0235:1020260015",
+						"description": "UAE e-invoicing address: 0235: followed by the 10-digit TIN, e.g. 0235:1234567890",
 					},
 				],
 			),
