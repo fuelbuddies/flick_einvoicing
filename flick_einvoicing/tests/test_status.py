@@ -40,6 +40,22 @@ class TestTracks(TestCase):
 		self.assertEqual(st.combined(None, None), st.PROCESSING)
 
 
+class TestProcessingText(TestCase):
+	"""While processing, the sentence names only the track still open."""
+
+	def test_says_which_track_is_still_open(self):
+		cases = [
+			("processing", "processing", "Accepted by Flick. Reporting and delivery are still running."),
+			("reported", "processing", "Reported to the FTA. Waiting for delivery to the buyer."),
+			("not_required", "processing", "Accepted by Flick. Waiting for delivery to the buyer."),
+			("processing", "delivered", "Delivered to the buyer. Waiting for FTA reporting."),
+			("processing", "not_required", "Accepted by Flick. Waiting for FTA reporting."),
+		]
+		for reporting, exchange, text in cases:
+			with self.subTest(reporting=reporting, exchange=exchange):
+				self.assertEqual(st.next_action(sub(reporting_status=reporting, exchange_status=exchange)), text)
+
+
 class TestSettledRule(TestCase):
 	"""Reissuing on an unsettled failure files a second document for the same sale under the
 	client's TRN, the one defect a tax authority would see (brief §5)."""

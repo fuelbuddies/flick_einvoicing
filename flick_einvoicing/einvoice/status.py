@@ -141,6 +141,14 @@ def next_action(sub, origins: set[str] | None = None, codes: set[str] | None = N
 	if status == COMPLETED:
 		return "Reported to the FTA and delivered to the buyer."
 	if status == PROCESSING:
+		if sub.reporting_status == "reported":
+			return "Reported to the FTA. Waiting for delivery to the buyer."
+		if sub.reporting_status == "not_required":
+			return "Accepted by Flick. Waiting for delivery to the buyer."
+		if sub.exchange_status == "delivered":
+			return "Delivered to the buyer. Waiting for FTA reporting."
+		if sub.exchange_status in EXCHANGE_DONE:
+			return "Accepted by Flick. Waiting for FTA reporting."
 		return "Accepted by Flick. Reporting and delivery are still running."
 
 	known = [CAUSES[code] for code in sorted(codes or ()) if code in CAUSES]
