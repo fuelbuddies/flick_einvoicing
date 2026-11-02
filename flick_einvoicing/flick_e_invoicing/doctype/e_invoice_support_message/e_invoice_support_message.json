@@ -1,0 +1,97 @@
+{
+ "actions": [],
+ "creation": "2026-11-02 10:00:00",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "message_id",
+  "sender",
+  "sender_name",
+  "sender_email",
+  "message",
+  "sent_at",
+  "reopen",
+  "delivery_status",
+  "attempts",
+  "last_error"
+ ],
+ "fields": [
+  {
+   "fieldname": "message_id",
+   "fieldtype": "Data",
+   "label": "Message ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sender",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Sender",
+   "options": "Client\nSupport",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sender_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Sender Name",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sender_email",
+   "fieldtype": "Data",
+   "label": "Sender Email",
+   "read_only": 1
+  },
+  {
+   "fieldname": "message",
+   "fieldtype": "Text",
+   "in_list_view": 1,
+   "label": "Message",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sent_at",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Sent At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reopen",
+   "fieldtype": "Check",
+   "label": "Reopen",
+   "read_only": 1
+  },
+  {
+   "fieldname": "delivery_status",
+   "fieldtype": "Select",
+   "label": "Delivery Status",
+   "options": "Pending\nDelivered\nReceived\nFailed\nNot Sent",
+   "read_only": 1
+  },
+  {
+   "fieldname": "attempts",
+   "fieldtype": "Int",
+   "label": "Attempts",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_error",
+   "fieldtype": "Small Text",
+   "label": "Last Error",
+   "read_only": 1
+  }
+ ],
+ "istable": 1,
+ "modified": "2026-11-02 10:00:00",
+ "modified_by": "Administrator",
+ "module": "Flick E-Invoicing",
+ "name": "E Invoice Support Message",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

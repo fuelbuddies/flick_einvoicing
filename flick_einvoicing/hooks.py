@@ -10,9 +10,13 @@ required_apps = ["erpnext"]
 # ------------------
 
 doctype_js = {
-	"Sales Invoice": "public/js/invoice.js",
-	"POS Invoice": "public/js/invoice.js",
-	"Purchase Invoice": "public/js/invoice.js",
+	"Sales Invoice": ["public/js/invoice.js", "public/js/support.js"],
+	"POS Invoice": ["public/js/invoice.js", "public/js/support.js"],
+	"Purchase Invoice": ["public/js/invoice.js", "public/js/support.js"],
+	"E Invoice Submission": "public/js/support.js",
+	"E Invoice Log": "public/js/support.js",
+	"E Invoice Received": "public/js/support.js",
+	"E Invoicing Settings": "public/js/support.js",
 	"Customer": "public/js/party.js",
 	"Supplier": "public/js/party.js",
 }
@@ -20,6 +24,7 @@ doctype_js = {
 # Installation
 # ------------
 
+boot_session = "flick_einvoicing.support.boot_session"
 after_install = "flick_einvoicing.install.after_install"
 after_migrate = "flick_einvoicing.install.after_migrate"
 before_uninstall = "flick_einvoicing.install.before_uninstall"
@@ -48,6 +53,8 @@ doc_events = {
 	},
 	# Received invoices that came in before their sender was a supplier here.
 	"Supplier": {"on_update": "flick_einvoicing.einvoice.inbound.match_waiting"},
+	# Support, while turned on: this app's errors go to the hub.
+	"Error Log": {"after_insert": "flick_einvoicing.support.on_error_log"},
 }
 
 # Scheduled Tasks
@@ -58,10 +65,11 @@ scheduler_events = {
 		# Batch-mode submissions, plus retries of anything that failed to reach Flick.
 		"*/10 * * * *": ["flick_einvoicing.jobs.send_queued"],
 		# Status updates from Flick's events feed, and invoices received over Peppol.
-		"*/5 * * * *": ["flick_einvoicing.jobs.sync_events"],
+		"*/5 * * * *": ["flick_einvoicing.jobs.sync_events", "flick_einvoicing.support.retry_pending"],
 	},
 	# Safety net for documents whose events never arrived.
 	"daily": ["flick_einvoicing.jobs.refresh_stale"],
+	"hourly": ["flick_einvoicing.support.send_heartbeat"],
 }
 
 # Log Settings clears E Invoice Log rows older than this many days.

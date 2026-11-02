@@ -1,0 +1,285 @@
+{
+ "actions": [],
+ "autoname": "format:EISR-{#####}",
+ "creation": "2026-11-02 10:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "report_type",
+  "priority",
+  "column_break_top",
+  "send_status",
+  "remote_status",
+  "remote_ticket",
+  "details_section",
+  "title",
+  "description",
+  "screenshot",
+  "resolution",
+  "conversation_section",
+  "conversation",
+  "messages",
+  "context_section",
+  "reported_by",
+  "route",
+  "related_doctype",
+  "related_name",
+  "page_context",
+  "traceback",
+  "fingerprint",
+  "column_break_delivery",
+  "occurrence_count",
+  "unsent_occurrences",
+  "attempts",
+  "next_retry_at",
+  "sent_at",
+  "last_error"
+ ],
+ "fields": [
+  {
+   "default": "Bug",
+   "fieldname": "report_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Type",
+   "options": "Bug\nFeature Request\nError",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "default": "Medium",
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Priority",
+   "options": "Low\nMedium\nHigh\nUrgent",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "column_break_top",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Queued",
+   "depends_on": "eval:!doc.__islocal",
+   "fieldname": "send_status",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Delivery",
+   "options": "Queued\nSent\nFailed\nNot Sent",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:!doc.__islocal",
+   "fieldname": "remote_status",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Ticket Status",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:!doc.__islocal",
+   "fieldname": "remote_ticket",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Ticket",
+   "read_only": 1
+  },
+  {
+   "fieldname": "details_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "label": "Title",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Text",
+   "label": "What happened, or what do you need?",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "description": "Goes to the support team. Hide anything they should not see.",
+   "fieldname": "screenshot",
+   "fieldtype": "Attach Image",
+   "label": "Screenshot",
+   "set_only_once": 1
+  },
+  {
+   "depends_on": "resolution",
+   "fieldname": "resolution",
+   "fieldtype": "Text",
+   "label": "Resolution",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:!doc.__islocal",
+   "fieldname": "conversation_section",
+   "fieldtype": "Section Break",
+   "label": "Conversation"
+  },
+  {
+   "fieldname": "conversation",
+   "fieldtype": "HTML"
+  },
+  {
+   "fieldname": "messages",
+   "fieldtype": "Table",
+   "hidden": 1,
+   "label": "Messages",
+   "options": "E Invoice Support Message",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval:!doc.__islocal",
+   "fieldname": "context_section",
+   "fieldtype": "Section Break",
+   "label": "Details"
+  },
+  {
+   "fieldname": "reported_by",
+   "fieldtype": "Link",
+   "label": "Reported By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "route",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Route",
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "related_doctype",
+   "fieldtype": "Data",
+   "label": "Related DocType",
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "related_name",
+   "fieldtype": "Data",
+   "label": "Related Document",
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "page_context",
+   "fieldtype": "Code",
+   "hidden": 1,
+   "label": "Page Context",
+   "options": "JSON",
+   "read_only": 1
+  },
+  {
+   "depends_on": "traceback",
+   "fieldname": "traceback",
+   "fieldtype": "Code",
+   "label": "Traceback",
+   "read_only": 1
+  },
+  {
+   "fieldname": "fingerprint",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Fingerprint",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_delivery",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "occurrence_count",
+   "fieldtype": "Int",
+   "label": "Occurrences",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "unsent_occurrences",
+   "fieldtype": "Int",
+   "hidden": 1,
+   "label": "Unsent Occurrences",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "attempts",
+   "fieldtype": "Int",
+   "label": "Attempts",
+   "read_only": 1
+  },
+  {
+   "fieldname": "next_retry_at",
+   "fieldtype": "Datetime",
+   "label": "Next Retry",
+   "read_only": 1
+  },
+  {
+   "fieldname": "sent_at",
+   "fieldtype": "Datetime",
+   "label": "Sent At",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_error",
+   "fieldtype": "Small Text",
+   "label": "Last Error",
+   "read_only": 1
+  }
+ ],
+ "modified": "2026-11-02 13:00:00",
+ "modified_by": "Administrator",
+ "module": "Flick E-Invoicing",
+ "name": "E Invoice Support Report",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "if_owner": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts User",
+   "write": 1
+  }
+ ],
+ "show_title_field_in_link": 1,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "title",
+ "track_changes": 0
+}

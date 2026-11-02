@@ -1,0 +1,95 @@
+{
+ "actions": [],
+ "creation": "2026-11-02 10:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "enabled",
+  "connection_section",
+  "hub_url",
+  "site_key",
+  "site_secret",
+  "status_column",
+  "connection_status",
+  "last_heartbeat_at",
+  "last_heartbeat_error",
+  "hub_ignored_errors"
+ ],
+ "fields": [
+  {
+   "default": "0",
+   "description": "Off by default. While off nothing is captured or sent.",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "connection_section",
+   "fieldtype": "Section Break",
+   "label": "Connection"
+  },
+  {
+   "fieldname": "hub_url",
+   "fieldtype": "Data",
+   "label": "Hub URL",
+   "options": "URL"
+  },
+  {
+   "fieldname": "site_key",
+   "fieldtype": "Data",
+   "label": "Site Key"
+  },
+  {
+   "fieldname": "site_secret",
+   "fieldtype": "Password",
+   "label": "Site Secret"
+  },
+  {
+   "fieldname": "status_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "connection_status",
+   "fieldtype": "Small Text",
+   "label": "Connection Status",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_heartbeat_at",
+   "fieldtype": "Datetime",
+   "label": "Last Heartbeat",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_heartbeat_error",
+   "fieldtype": "Small Text",
+   "label": "Last Heartbeat Error",
+   "read_only": 1
+  },
+  {
+   "fieldname": "hub_ignored_errors",
+   "fieldtype": "Small Text",
+   "hidden": 1,
+   "label": "Errors the Hub Ignores",
+   "read_only": 1
+  }
+ ],
+ "issingle": 1,
+ "modified": "2026-11-02 10:00:00",
+ "modified_by": "Administrator",
+ "module": "Flick E-Invoicing",
+ "name": "Flick Support Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}
