@@ -1,4 +1,4 @@
-"""The seam between payload and transport (brief §3.4). Flick is the only provider."""
+"""The seam between payload and transport. Flick is the only provider."""
 
 import frappe
 

@@ -58,7 +58,7 @@ class TestProcessingText(TestCase):
 
 class TestSettledRule(TestCase):
 	"""Reissuing on an unsettled failure files a second document for the same sale under the
-	client's TRN, the one defect a tax authority would see (brief §5)."""
+	client's TRN, the one defect a tax authority would see."""
 
 	def test_unsettled_failure_blocks_every_way_of_reissuing(self):
 		s = sub(status=st.FAILED, exchange_status="failed", exchange_settled=0)
