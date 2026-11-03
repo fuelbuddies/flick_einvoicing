@@ -756,12 +756,12 @@ class _Builder:
 			and not trn
 		):
 			# ibr-135-ae: a buyer on a placeholder address (abroad, not subject, deemed) has no Peppol
-			# ID to name them, so outside an export Flick needs the buyer's TRN. A trade licence does
-			# not count: Flick refused one in place of the TRN on pre-production (2026-11-03).
+			# ID to name them; outside an export Flick needs the buyer's TRN. Flick's is_export is a
+			# supply of goods or services outside the country, so services to a buyer abroad export too.
 			self.problem(
 				f"{doctype} {name} has no Peppol address of its own and no TRN, so Flick cannot identify the "
-				"buyer (ibr-135-ae). Tick Export if the goods leave the UAE. Otherwise the buyer's TRN is "
-				"needed; a trade licence is not accepted in its place."
+				"buyer (ibr-135-ae). For goods or services supplied to a buyer outside the UAE, tick Export "
+				"and use the buyer's address abroad as the Shipping Address. Otherwise add the buyer's TRN."
 			)
 
 		block = {
