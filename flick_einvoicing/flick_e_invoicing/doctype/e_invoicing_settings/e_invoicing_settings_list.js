@@ -1,4 +1,4 @@
-// Copyright (c) 2026, Ashar Shamsudheen and contributors
+// Copyright (c) 2026, Techountant and contributors
 // For license information, please see license.txt
 
 // One record per company: say so above the list, with where each UAE company stands.

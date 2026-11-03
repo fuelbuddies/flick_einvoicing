@@ -1,4 +1,4 @@
-Copyright (c) 2026 Ashar Shamsudheen. All rights reserved.
+Copyright (c) 2026 Techountant. All rights reserved.
 
 Proprietary and confidential. This software and its source may not be copied,
 modified, distributed or used without the prior written permission of the

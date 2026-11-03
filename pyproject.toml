@@ -1,7 +1,7 @@
 [project]
 name = "flick_einvoicing"
 authors = [
-    { name = "Ashar Shamsudheen", email = "azr.shamz@gmail.com"}
+    { name = "Techountant", email = "ashar@techountant.com"}
 ]
 description = "UAE e-invoicing for ERPNext through Flick (PINT-AE over Peppol)"
 requires-python = ">=3.10"

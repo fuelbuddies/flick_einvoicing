@@ -1,4 +1,4 @@
-// Copyright (c) 2026, Ashar Shamsudheen and contributors
+// Copyright (c) 2026, Techountant and contributors
 // For license information, please see license.txt
 
 frappe.query_reports["E-Invoice Status"] = {

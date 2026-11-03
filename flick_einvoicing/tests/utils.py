@@ -36,19 +36,7 @@ def uae_company():
 		],
 		order_by="creation",
 	)
-	if frappe.db.exists("DocType", "Trading Branch"):
-		# techountant_trading stamps the user's default branch on every invoice; use a company
-		# with a branch of its own so the invoice can carry a branch that fits.
-		with_branch = [c for c in companies if frappe.db.exists("Trading Branch", {"company": c.name})]
-		companies = with_branch or companies
 	return companies[0] if companies else None
-
-
-def _branch_of(company, doctype="Sales Invoice"):
-	if not frappe.get_meta(doctype).has_field("tt_branch"):
-		return {}
-	branch = frappe.db.get_value("Trading Branch", {"company": company.name}, "name")
-	return {"tt_branch": branch} if branch else {}
 
 
 def vat_account(company):
@@ -464,7 +452,6 @@ def make_invoice(
 			"taxes_and_charges": template,
 			"taxes": taxes,
 			"items": rows,
-			**_branch_of(company),
 			**values,
 		}
 	)
@@ -516,7 +503,6 @@ def make_purchase_invoice(fx, lines, submit=False, **values):
 				}
 				for qty, rate, item in lines
 			],
-			**_branch_of(company, "Purchase Invoice"),
 			**values,
 		}
 	)

@@ -1,8 +1,8 @@
 app_name = "flick_einvoicing"
 app_title = "Flick E-Invoicing"
-app_publisher = "Ashar Shamsudheen"
+app_publisher = "Techountant"
 app_description = "UAE e-invoicing for ERPNext through Flick (PINT-AE over Peppol)"
-app_email = "azr.shamz@gmail.com"
+app_email = "ashar@techountant.com"
 app_license = "Proprietary"
 required_apps = ["erpnext"]
 

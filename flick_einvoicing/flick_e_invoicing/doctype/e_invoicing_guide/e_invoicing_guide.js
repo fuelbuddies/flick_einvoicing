@@ -1,4 +1,4 @@
-// Copyright (c) 2026, Ashar Shamsudheen and contributors
+// Copyright (c) 2026, Techountant and contributors
 // For license information, please see license.txt
 
 // The guide is rendered on the server with the site's own settings; links in it scroll to a section.

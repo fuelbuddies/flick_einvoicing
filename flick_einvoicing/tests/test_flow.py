@@ -1237,19 +1237,6 @@ class TestEvents(FlowTestCase):
 class TestReceiving(FlowTestCase):
 	INCOMING_ID = "01a18392-0000-7000-8000-000000000001"
 
-	def default_branch_of_test_company(self):
-		"""techountant_trading numbers purchase invoices by the user's default branch. Point
-		Administrator's default at the test company's branch, inside the rolled-back test only."""
-		if not frappe.db.exists("DocType", "Trading Branch User"):
-			return
-		branch = frappe.db.get_value("Trading Branch", {"company": self.fx.company.name}, "name")
-		if not branch:
-			return
-		frappe.db.delete("Trading Branch User", {"user": frappe.session.user})
-		doc = frappe.get_doc("Trading Branch", branch)
-		doc.append("users", {"user": frappe.session.user, "is_default": 1})
-		doc.save()
-
 	def received_detail(self):
 		document = {
 			"document_identifier": "SUP-INV-77",
@@ -1320,7 +1307,6 @@ class TestReceiving(FlowTestCase):
 		)
 		self.assertEqual(frappe.db.count("File", {"attached_to_name": name}), 2)
 
-		self.default_branch_of_test_company()
 		pi = frappe.get_doc("Purchase Invoice", inbound.create_purchase_invoice(name))
 		self.assertEqual((pi.docstatus, pi.bill_no, pi.supplier), (0, "SUP-INV-77", self.fx.supplier))
 		self.assertEqual(
@@ -1342,7 +1328,6 @@ class TestReceivingAgainstOrders(FlowTestCase):
 	remembered from what the reviewer chose."""
 
 	def setUp(self):
-		TestReceiving.default_branch_of_test_company(self)
 		self.cable = _item(f"{PREFIX} Cable", "Cable")
 
 	def received(self, lines, supplier=None, sender=None, **document):
@@ -1652,7 +1637,7 @@ class TestMatchingTheEInvoice(FlowTestCase):
 	TOTALS = ("tax_exclusive_amount", "tax_amount", "tax_inclusive_amount", "payable_amount")
 
 	def setUp(self):
-		TestReceiving.default_branch_of_test_company(self)
+		pass
 
 	def line(self, id, qty, rate, code, **extra):
 		return TestReceivingAgainstOrders.line(self, id, qty, rate, code, **extra)
