@@ -179,23 +179,25 @@ if (!flick_einvoicing.invoice_form_registered) {
 
 	frappe.ui.form.on("Sales Invoice", handlers);
 
-	// A buyer abroad whose goods ship outside the UAE: tick Export, as the server does on insert.
-	// Only ticks, never unticks, so a person's choice stands.
+	// A buyer abroad whose supply goes outside the UAE: tick Export, as the server does on insert.
+	// The shipping address decides; without one, the billing address abroad becomes it. Never unticks.
 	const default_export = (frm) => {
-		const { customer, shipping_address_name: address } = frm.doc;
+		const { customer, shipping_address_name, customer_address } = frm.doc;
+		const address = shipping_address_name || customer_address;
 		if (frm.doc.docstatus !== 0 || frm.doc.einvoice_is_export || !customer || !address) return;
 		Promise.all([
 			frappe.db.get_value("Customer", customer, "einvoice_routing"),
 			frappe.db.get_value("Address", address, "country"),
 		]).then(([routing, country]) => {
-			const abroad = country.message.country && country.message.country !== "United Arab Emirates";
-			if (routing.message.einvoice_routing === "Export buyer not on Peppol" && abroad && frm.doc.shipping_address_name === address) {
-				frm.set_value("einvoice_is_export", 1);
-				frappe.show_alert({ message: __("Export ticked: the buyer is abroad and the goods ship to {0}.", [country.message.country]), indicator: "blue" });
-			}
+			const where = country.message.country;
+			const still = (frm.doc.shipping_address_name || frm.doc.customer_address) === address;
+			if (routing.message.einvoice_routing !== "Export buyer not on Peppol" || !where || where === "United Arab Emirates" || !still) return;
+			if (!frm.doc.shipping_address_name) frm.set_value("shipping_address_name", address);
+			frm.set_value("einvoice_is_export", 1);
+			frappe.show_alert({ message: __("Export ticked: the buyer is abroad, in {0}.", [where]), indicator: "blue" });
 		});
 	};
-	frappe.ui.form.on("Sales Invoice", { customer: default_export, shipping_address_name: default_export });
+	frappe.ui.form.on("Sales Invoice", { customer: default_export, customer_address: default_export, shipping_address_name: default_export });
 	frappe.ui.form.on("POS Invoice", handlers);
 	frappe.ui.form.on("Purchase Invoice", handlers);
 

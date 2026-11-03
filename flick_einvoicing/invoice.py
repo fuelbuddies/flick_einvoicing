@@ -19,18 +19,23 @@ def before_insert(doc, method=None):
 
 
 def default_export(doc):
-	"""Tick Export on a new sales invoice to a buyer abroad whose goods ship outside the UAE.
+	"""Tick Export on a new sales invoice to a buyer abroad when the supply goes outside the UAE.
 
-	Only then: a buyer abroad may buy services here, with nothing shipped, and Export would demand
-	a shipping address abroad. Never unticks; a person's choice stands."""
+	Flick's is_export is a supply of goods or services outside the country, with a delivery address
+	abroad. The shipping address decides; without one (services, usually) the buyer's billing
+	address abroad becomes the delivery address. Goods delivered inside the UAE stay unticked.
+	Never unticks; a person's choice stands."""
 	from flick_einvoicing.einvoice import codes
 
-	if doc.doctype != "Sales Invoice" or doc.get("einvoice_is_export") or not doc.get("shipping_address_name"):
+	if doc.doctype != "Sales Invoice" or doc.get("einvoice_is_export") or not doc.get("customer"):
 		return
 	if frappe.get_cached_value("Customer", doc.customer, "einvoice_routing") != codes.ROUTING_EXPORT:
 		return
-	country = frappe.db.get_value("Address", doc.shipping_address_name, "country")
+	address = doc.get("shipping_address_name") or doc.get("customer_address")
+	country = address and frappe.db.get_value("Address", address, "country")
 	if country and country != "United Arab Emirates":
+		if not doc.get("shipping_address_name"):
+			doc.shipping_address_name = address
 		doc.einvoice_is_export = 1
 
 
