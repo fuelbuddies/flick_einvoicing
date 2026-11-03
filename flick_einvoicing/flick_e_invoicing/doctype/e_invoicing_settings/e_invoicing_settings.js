@@ -159,3 +159,18 @@ function show_deliveries(deliveries) {
 		wide: true,
 	});
 }
+
+// The rounding warning's button. Rounding is site-wide, so the change is confirmed first.
+window.flick_einvoicing = window.flick_einvoicing || {};
+flick_einvoicing.confirm_commercial_rounding = () => {
+	frappe.confirm(
+		__(
+			"Rounding Method is set for the whole site, not only e-invoicing: every new document in every app rounds half up from now on. Documents already saved keep their amounts. Best done before invoicing starts or at the start of a period. Switch to Commercial Rounding?"
+		),
+		() =>
+			frappe.xcall("flick_einvoicing.flick_e_invoicing.doctype.e_invoicing_settings.e_invoicing_settings.use_commercial_rounding").then(() => {
+				frappe.hide_msgprint();
+				frappe.show_alert({ message: __("Rounding Method is now Commercial Rounding"), indicator: "green" });
+			})
+	);
+};

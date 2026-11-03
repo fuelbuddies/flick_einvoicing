@@ -12,6 +12,32 @@ from flick_einvoicing.einvoice import code_lists, codes
 UUID_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
 
 
+COMMERCIAL = "Commercial Rounding"
+
+
+def uses_bankers_rounding():
+	return (frappe.db.get_single_value("System Settings", "rounding_method") or "").startswith("Banker")
+
+
+@frappe.whitelist(methods=["POST"])
+def use_commercial_rounding():
+	"""Switch the site to Commercial Rounding, on a System Manager's say-so. Rounding is site-wide:
+	it changes every new document on the site, in every app, so it is never done silently."""
+	frappe.only_for("System Manager")
+	if not uses_bankers_rounding():
+		return
+	settings = frappe.get_doc("System Settings")
+	before = settings.rounding_method
+	settings.rounding_method = COMMERCIAL
+	settings.save()
+	settings.add_comment(
+		"Info",
+		_("Rounding Method changed from {0} to {1} from E Invoicing Settings by {2}").format(
+			before, COMMERCIAL, frappe.session.user
+		),
+	)
+
+
 class EInvoicingSettings(Document):
 	def validate(self):
 		self.base_url = (self.base_url or "").strip().rstrip("/")
@@ -37,16 +63,23 @@ class EInvoicingSettings(Document):
 		if self.enabled:
 			self.validate_ready()
 
-		rounding = frappe.db.get_single_value("System Settings", "rounding_method") or ""
-		if self.enabled and rounding.startswith("Banker"):
-			frappe.msgprint(
-				_(
-					"ERPNext rounds half a fil to even here, while Flick rounds it up. On an exact half fil "
-					"the e-invoice's VAT is then one fil above the books. Commercial Rounding in System "
-					"Settings keeps the two identical."
-				),
-				indicator="orange",
+		if self.enabled and uses_bankers_rounding():
+			message = _(
+				"ERPNext rounds half a fil to even here, while Flick rounds it up. On an exact half fil "
+				"the e-invoice's VAT is then one fil above the books. Commercial Rounding in System "
+				"Settings keeps the two identical."
 			)
+			if "System Manager" in frappe.get_roles():
+				frappe.msgprint(
+					message,
+					indicator="orange",
+					primary_action={
+						"label": _("Switch to Commercial Rounding"),
+						"client_action": "flick_einvoicing.confirm_commercial_rounding",
+					},
+				)
+			else:
+				frappe.msgprint(message + " " + _("Ask a System Manager to change it."), indicator="orange")
 
 		if self.environment == "Production" and "preprod" in self.base_url:
 			frappe.msgprint(

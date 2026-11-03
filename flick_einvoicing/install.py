@@ -16,10 +16,26 @@ DASHBOARD_ROLES = ("System Manager", "Accounts Manager", "Accounts User")
 
 def after_install():
 	ensure_doctypes()
+	use_commercial_rounding_on_new_site()
 	sync_custom_fields()
 	ensure_uom_code_list()
 	ensure_dashboard()
 	ensure_placeholder_item()
+
+
+def use_commercial_rounding_on_new_site():
+	"""Flick rounds half a fil up; ERPNext's default rounds it to even. A site with no accounting yet
+	starts on Commercial Rounding so the two agree. A site already keeping books is left alone:
+	changing its rounding is a person's call, from the warning in E Invoicing Settings."""
+	from flick_einvoicing.flick_e_invoicing.doctype.e_invoicing_settings.e_invoicing_settings import (
+		COMMERCIAL,
+		uses_bankers_rounding,
+	)
+
+	if not uses_bankers_rounding() or frappe.db.exists("GL Entry", {}):
+		return
+	frappe.db.set_single_value("System Settings", "rounding_method", COMMERCIAL)
+	frappe.clear_cache()
 
 
 def ensure_doctypes():
