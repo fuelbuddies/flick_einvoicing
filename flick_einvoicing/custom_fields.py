@@ -32,6 +32,9 @@ def _invoice_fields(container: dict, received_link: bool = False) -> list[dict]:
 			"allow_on_submit": 1,
 			"no_copy": 1,
 			"print_hide": 1,
+			"in_standard_filter": 1,
+			# a column where most invoices are e-invoiced; purchase invoices only are when self-billed
+			"in_list_view": 0 if received_link else 1,
 		},
 		{
 			"fieldname": "einvoice_submission",

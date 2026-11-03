@@ -9,6 +9,13 @@ required_apps = ["erpnext"]
 # Includes in <head>
 # ------------------
 
+# The E-Invoice Status column as a coloured pill, beside the invoice's own status.
+doctype_list_js = {
+	"Sales Invoice": "public/js/invoice_list.js",
+	"POS Invoice": "public/js/invoice_list.js",
+	"Purchase Invoice": "public/js/invoice_list.js",
+}
+
 doctype_js = {
 	"Sales Invoice": ["public/js/invoice.js", "public/js/support.js"],
 	"POS Invoice": ["public/js/invoice.js", "public/js/support.js"],
