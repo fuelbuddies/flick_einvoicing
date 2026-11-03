@@ -304,10 +304,17 @@ def get_custom_fields() -> dict[str, list[dict]]:
 				],
 			),
 			{
+				"fieldname": "einvoice_party_identifier",
+				"label": "Buyer Identifier",
+				"fieldtype": "Data",
+				"insert_after": "einvoice_trade_licence_authority",
+				"description": "For a buyer with no TRN and no Peppol ID of its own (not VAT registered, or outside UAE e-invoicing). Left empty, the trade licence number is sent.",
+			},
+			{
 				"fieldname": "einvoice_mandate_id",
 				"label": "Direct Debit Mandate",
 				"fieldtype": "Data",
-				"insert_after": "einvoice_trade_licence_authority",
+				"insert_after": "einvoice_party_identifier",
 			},
 			{
 				"fieldname": "einvoice_mandate_account",

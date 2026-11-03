@@ -749,24 +749,30 @@ class _Builder:
 			if not identifiers["AE:TL"]["authority_name"]:
 				self.problem(f"{doctype} {name}: a trade licence needs its licensing authority (ibr-101-ae).")
 
+		# The buyer's own identifier (Flick's party_identifier, IBT-046): what names a buyer with no
+		# TRN and no Peppol ID of its own. Left empty, its trade licence number stands in.
+		party_identifier = ""
+		if doctype == "Customer":
+			party_identifier = cstr(party.get("einvoice_party_identifier")).strip() or licence
 		if (
 			peppol_id
 			and not re.match(codes.PEPPOL_ID_PATTERN, peppol_id)
 			and not inv.get("einvoice_is_export")
 			and not trn
+			and not party_identifier
 		):
 			# ibr-135-ae: a buyer on a placeholder address (abroad, not subject, deemed) has no Peppol
-			# ID to name them; outside an export Flick needs the buyer's TRN. Flick's is_export is a
-			# supply of goods or services outside the country, so services to a buyer abroad export too.
+			# ID to name them; outside an export Flick needs the buyer's TRN or identifier.
 			self.problem(
-				f"{doctype} {name} has no Peppol address of its own and no TRN, so Flick cannot identify the "
-				"buyer (ibr-135-ae). For goods or services supplied to a buyer outside the UAE, tick Export "
-				"and use the buyer's address abroad as the Shipping Address. Otherwise add the buyer's TRN."
+				f"{doctype} {name} has no Peppol address of its own, no TRN and no identifier, so Flick cannot "
+				"identify the buyer (ibr-135-ae). Set the buyer's TRN, or its trade licence (or Buyer "
+				"Identifier) on the customer. For a buyer outside the UAE, ticking Export also works."
 			)
 
 		block = {
 			"legal_name": cstr(legal_name),
 			"peppol_id": peppol_id,
+			"party_identifier": party_identifier or None,
 			"identifiers": _drop_empty(identifiers),
 		}
 		block.update(self.contact())
@@ -1298,6 +1304,7 @@ ALLOWED_KEYS = {
 	"receiving_party": {
 		"legal_name": _ANY,
 		"peppol_id": _ANY,
+		"party_identifier": _ANY,
 		"identifiers": {"AE:VAT": {"value": _ANY}, "AE:TL": {"value": _ANY, "authority_name": _ANY}},
 		**_ADDRESS,
 		**_CONTACT,
