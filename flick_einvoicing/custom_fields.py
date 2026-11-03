@@ -78,7 +78,7 @@ def _invoice_fields(container: dict, received_link: bool = False) -> list[dict]:
 			"fieldname": "einvoice_transaction_section",
 			"label": "Transaction Type",
 			"fieldtype": "Section Break",
-			"collapsible": 1,
+			"collapsible": 0,  # open by default: Export and the other flags are seen at a glance
 			"description": "Only for the special cases below; an ordinary invoice needs none of them.",
 		},
 		_check("einvoice_is_ftz", "Free Trade Zone Supply"),
