@@ -24,6 +24,8 @@
   "total_amount",
   "column_break_amounts",
   "tax_amount",
+  "lines_section",
+  "lines_html",
   "notes_section",
   "notes",
   "document_section",
@@ -153,9 +155,21 @@
    "read_only": 1
   },
   {
+   "fieldname": "lines_section",
+   "fieldtype": "Section Break",
+   "label": "Lines"
+  },
+  {
+   "fieldname": "lines_html",
+   "fieldtype": "HTML",
+   "label": "Lines"
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "notes",
    "fieldname": "notes_section",
    "fieldtype": "Section Break",
-   "label": "Review"
+   "label": "Notes from the Draft"
   },
   {
    "description": "What could not be matched when the purchase invoice was drafted.",
@@ -168,7 +182,7 @@
    "collapsible": 1,
    "fieldname": "document_section",
    "fieldtype": "Section Break",
-   "label": "Document"
+   "label": "Raw Document (JSON)"
   },
   {
    "fieldname": "document_json",
@@ -181,7 +195,7 @@
  "in_create": 1,
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-10-28 22:00:00.000000",
+ "modified": "2026-11-03 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Flick E-Invoicing",
  "name": "E Invoice Received",

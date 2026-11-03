@@ -29,7 +29,42 @@ def document_of(invoice) -> dict:
 	"""The supplier's e-invoice a purchase invoice was made from."""
 	if not invoice.get("einvoice_received"):
 		return {}
-	return json.loads(frappe.db.get_value(RECEIVED, invoice.einvoice_received, "document_json") or "{}")
+	return load(frappe.db.get_value(RECEIVED, invoice.einvoice_received, "document_json"))
+
+
+CREDIT_TYPES = {codes.CREDIT_NOTE, codes.CREDIT_NOTE_OUT_OF_SCOPE, codes.SELF_BILLED_CREDIT_NOTE}
+_SIGNED_LINE = ("quantity", "line_extension_amount", "line_amount_aed", "tax_line_amount_aed")
+_SIGNED_ENTRY = ("amount", "base_amount")
+
+
+def load(raw: str | None) -> dict:
+	"""A received document, its credit note figures the way this app reads them.
+
+	A credit note states what is credited as positive figures; the purchase return made from it
+	carries the minus. Some suppliers state them negative instead (-30 units, total -6,300). Read
+	as stated, the minus would cancel the return's own and ERPNext refuses the draft, so their
+	signs are turned back here, once, for every reader."""
+	document = json.loads(raw or "{}")
+	if cstr(document.get("document_type")) not in CREDIT_TYPES or figures(document).net >= 0:
+		return document
+
+	def flip(row, keys):
+		for key in keys:
+			if row.get(key) not in (None, ""):
+				row[key] = str(-flt(row[key]))
+
+	for line in document.get("invoice_lines") or []:
+		flip(line, _SIGNED_LINE)
+		for entry in line.get("allowance_charges") or []:
+			flip(entry, _SIGNED_ENTRY)
+	for entry in document.get("allowance_charges") or []:
+		flip(entry, _SIGNED_ENTRY)
+	for row in document.get("tax_totals") or []:
+		flip(row, [key for key in row if key.endswith("amount") or key.endswith("_aed")])
+	totals = document.get("invoice_totals") or {}
+	flip(totals, [key for key, value in totals.items() if isinstance(value, str | int | float)])
+	document["signs_turned"] = 1
+	return document
 
 
 # The supplier's figures

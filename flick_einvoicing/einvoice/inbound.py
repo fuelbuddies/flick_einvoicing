@@ -150,7 +150,7 @@ def create_purchase_invoice(name: str) -> str:
 			title="Supplier not found",
 		)
 	settings = frappe.get_doc("E Invoicing Settings", record.company)
-	document = json.loads(record.document_json or "{}")
+	document = reconcile.load(record.document_json)
 	notes = []
 
 	is_return = cstr(document.get("document_type")) in RETURN_TYPES
@@ -290,6 +290,138 @@ def create_purchase_invoice(name: str) -> str:
 	record.flags.ignore_permissions = True
 	record.save()
 	return pi.name
+
+
+def review(record) -> dict:
+	"""What Create Purchase Invoice would run into, worked out without making anything: the banner
+	on a received e-invoice, and its lines with the item each would get. Uses the same matching as
+	the draft, so what it says is what happens."""
+	document = reconcile.load(record.document_json)
+	lines = document.get("invoice_lines") or []
+	supplier = record.supplier or match_supplier(record.sender_peppol_id, record.sender_vat)
+	is_return = cstr(document.get("document_type")) in RETURN_TYPES
+	settings = frappe.db.exists("E Invoicing Settings", record.company) and frappe.get_cached_doc(
+		"E Invoicing Settings", record.company
+	)
+	placeholder = (settings and settings.get("purchase_item")) or placeholder_item()
+	templates = _item_templates_by_category(settings) if settings else {}
+
+	rows, unmatched, untaxed = [], [], set()
+	for number, line in enumerate(lines, 1):
+		item = _match_item(line, supplier) if supplier else None
+		category = cstr(line.get("tax_category"))
+		if not item:
+			unmatched.append(number)
+		if category and category != "S" and category not in templates:
+			untaxed.add(category)
+		rows.append(
+			{
+				"no": number,
+				"code": cstr(line.get("supplier_item_code")),
+				"name": cstr(line.get("name") or line.get("description")),
+				"qty": flt(line.get("quantity")),
+				"uom": cstr(line.get("uom")),
+				"rate": reconcile.unit_rate(line),
+				"amount": reconcile.line_amount(line),
+				"vat": f"{category} {flt(line.get('tax_percentage')):g}%" if category else "",
+				"item": item,
+			}
+		)
+
+	problems, info, actions = [], [], []
+	if not supplier:
+		problems.append(
+			f"The sender, {record.sender_name or 'unnamed'}, is not a supplier here yet. Create it with the "
+			"sender's Peppol ID or TRN, and this invoice and any others from it link to it."
+		)
+		actions.append({"label": "Create Supplier", "create_supplier": True})
+	if unmatched:
+		count = "1 line matches" if len(unmatched) == 1 else f"{len(unmatched)} of {len(lines)} lines match"
+		where = f"they go on {placeholder} until you choose our item on the draft" if placeholder else (
+			"they are booked to the company's default expense account without an item"
+		)
+		problems.append(
+			f"{count} none of our items (line {', '.join(map(str, unmatched))}): {where}. "
+			"To match them next time, add the supplier's code to our item under Supplier Items."
+			if supplier
+			else f"Items are matched once the supplier exists: {len(lines)} line{'s' if len(lines) != 1 else ''} to check."
+		)
+	if untaxed:
+		problems.append(
+			f"VAT categor{'y' if len(untaxed) == 1 else 'ies'} {', '.join(sorted(untaxed))} "
+			"has no Item Tax Template in E Invoicing Settings, Tax Treatments."
+		)
+	if is_return:
+		if document.get("signs_turned"):
+			info.append("The supplier states this credit note in negative figures; read as positive credits, as a return needs.")
+		original = _original_purchase_invoice(supplier, document) if supplier else None
+		quoted = ", ".join(r.get("document_identifier") for r in document.get("document_references") or [] if r.get("document_identifier"))
+		if original:
+			info.append(f"Credit note against {original} (the supplier's {quoted}).")
+		else:
+			problems.append(
+				f"Credit note: the original purchase invoice{f' ({quoted})' if quoted else ''} is not found among "
+				"this supplier's submitted invoices. The draft needs Return Against set by hand."
+			)
+	elif supplier:
+		sources = _purchase_sources(record, document)
+		if sources:
+			info.append("The draft is made from " + ", ".join(f"{d} {n}" for d, n in sources) + ".")
+	if any(cstr(line.get("tax_category")) == "S" for line in lines) and not (
+		(settings and settings.get("purchase_taxes_template"))
+		or frappe.db.get_value(
+			"Purchase Taxes and Charges Template", {"company": record.company, "is_default": 1, "disabled": 0}
+		)
+	):
+		problems.append(
+			"No purchase taxes template: set one in E Invoicing Settings (Purchase Taxes for Standard-Rated "
+			"Lines) or mark one as default, or the draft has no VAT."
+		)
+	currency = document.get("document_currency") or record.currency
+	if currency and currency != frappe.get_cached_value("Company", record.company, "default_currency"):
+		info.append(f"In {currency}: the draft takes the exchange rate the supplier states, else today's.")
+
+	kind = {
+		"380": "Invoice",
+		"480": "Invoice, out of scope of VAT",
+		"389": "Self-billed invoice",
+		"381": "Credit note (purchase return)",
+		"81": "Credit note, out of scope of VAT (purchase return)",
+		"261": "Self-billed credit note (purchase return)",
+	}.get(
+		cstr(document.get("document_type")), "Credit note (purchase return)" if is_return else "Invoice"
+	)
+	if record.purchase_invoice:
+		banner = {
+			"color": "blue",
+			"title": f"Purchase invoice {record.purchase_invoice} was made from it.",
+			"lines": [ln for ln in (record.notes or "").splitlines() if ln.strip()],
+			"actions": [{"label": "Open purchase invoice", "route": ["Form", "Purchase Invoice", record.purchase_invoice]}],
+		}
+	elif record.status == "Ignored":
+		banner = {"color": "gray", "title": "Ignored: no purchase invoice will be made from it."}
+	elif problems:
+		banner = {
+			"color": "orange",
+			"title": f"{kind}: {'1 thing' if len(problems) == 1 else f'{len(problems)} things'} to sort before Create Purchase Invoice.",
+			"lines": problems + info,
+			"actions": actions,
+		}
+	else:
+		banner = {
+			"color": "green",
+			"title": f"{kind}: ready. Every line matches our items; Create Purchase Invoice makes a draft"
+			f"{' purchase return' if is_return else ''} for review.",
+			"lines": info,
+		}
+
+	totals = reconcile.figures(document)
+	return {
+		"banner": banner,
+		"lines": rows,
+		"currency": currency,
+		"totals": {"net": totals.net, "vat": totals.vat, "total": totals.total},
+	}
 
 
 def _set_exchange_rate(pi, document: dict, notes: list):

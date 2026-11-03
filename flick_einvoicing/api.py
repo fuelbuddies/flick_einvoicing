@@ -342,15 +342,40 @@ def _invoice_banner(invoice) -> dict | None:
 		flick = _("This app's own checks pass. On submit, Flick validates it too and stops the submit if it finds a problem.")
 	else:
 		flick = _("This app's own checks pass. Flick validates it again when it is sent, after you submit.")
+	lines = [
+		flick,
+		_("Check with Flick asks Flick for its answer now, before you submit. Nothing is filed or delivered."),
+	]
+	warning = export_vat_warning(invoice, settings)
+	if warning:
+		return {
+			"color": "yellow",
+			"title": _("Ready to e-invoice, but check the VAT: {0}").format(warning),
+			"lines": lines,
+			"action": {"label": _("Check with Flick"), "check": True},
+		}
 	return {
 		"color": "green",
 		"title": _("Ready to e-invoice: {0}.").format(when),
-		"lines": [
-			flick,
-			_("Check with Flick asks Flick for its answer now, before you submit. Nothing is filed or delivered."),
-		],
+		"lines": lines,
 		"action": {"label": _("Check with Flick"), "check": True},
 	}
+
+
+def export_vat_warning(invoice, settings) -> str | None:
+	"""Exported goods are normally zero-rated; 5% on an export is usually the wrong tax template.
+	A warning, never a block: some supplies to a buyer abroad do carry VAT."""
+	if not invoice.get("einvoice_is_export"):
+		return None
+	from flick_einvoicing.einvoice.payload import build_payload
+
+	lines = build_payload(invoice, settings).get("invoice_lines") or []
+	standard = [str(number) for number, line in enumerate(lines, 1) if line.get("tax_category") == "S"]
+	if not standard:
+		return None
+	return _(
+		"it is marked as an export, yet {0} at 5% VAT. Exports are normally zero-rated; check the tax template."
+	).format(_("line {0} is").format(standard[0]) if len(standard) == 1 else _("lines {0} are").format(", ".join(standard)))
 
 
 def _submission_banner(name: str) -> dict | None:
@@ -492,6 +517,19 @@ def create_purchase_invoice(name: str) -> str:
 	frappe.has_permission("E Invoice Received", "write", doc=name, throw=True)
 	frappe.has_permission("Purchase Invoice", "create", throw=True)
 	return inbound.create_purchase_invoice(name)
+
+
+@frappe.whitelist()
+def received_review(name: str) -> dict | None:
+	"""The banner and the readable lines on a received e-invoice."""
+	record = frappe.get_doc("E Invoice Received", name)
+	record.check_permission("read")
+	try:
+		return inbound.review(record)
+	except Exception:
+		# A review must never get in the way of opening the record.
+		frappe.log_error(f"E-invoice review for {name}")
+		return None
 
 
 @frappe.whitelist()
