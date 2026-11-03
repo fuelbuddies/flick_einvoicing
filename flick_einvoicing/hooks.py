@@ -42,7 +42,7 @@ _invoice_events = {
 }
 
 doc_events = {
-	"Sales Invoice": _invoice_events,
+	"Sales Invoice": {**_invoice_events, "before_insert": "flick_einvoicing.invoice.before_insert"},
 	"POS Invoice": _invoice_events,
 	# Self-billed invoices: purchase invoices from suppliers with a self-billing agreement. Those
 	# made from received e-invoices remember the supplier's item codes on submit.

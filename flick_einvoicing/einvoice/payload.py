@@ -749,6 +749,20 @@ class _Builder:
 			if not identifiers["AE:TL"]["authority_name"]:
 				self.problem(f"{doctype} {name}: a trade licence needs its licensing authority (ibr-101-ae).")
 
+		if (
+			peppol_id
+			and not re.match(codes.PEPPOL_ID_PATTERN, peppol_id)
+			and not inv.get("einvoice_is_export")
+			and not identifiers
+		):
+			# ibr-135-ae: a buyer on a placeholder address (abroad, not subject, deemed) has no Peppol
+			# ID to name them, so outside an export Flick needs their TRN or trade licence instead.
+			self.problem(
+				f"{doctype} {name} has no Peppol address of its own and no TRN or trade licence, so Flick cannot "
+				"identify the buyer (ibr-135-ae). Tick Export if the goods leave the UAE; otherwise, as for "
+				f"services, add the buyer's TRN or trade licence and licensing authority on the {doctype.lower()}."
+			)
+
 		block = {
 			"legal_name": cstr(legal_name),
 			"peppol_id": peppol_id,

@@ -178,6 +178,24 @@ if (!flick_einvoicing.invoice_form_registered) {
 	};
 
 	frappe.ui.form.on("Sales Invoice", handlers);
+
+	// A buyer abroad whose goods ship outside the UAE: tick Export, as the server does on insert.
+	// Only ticks, never unticks, so a person's choice stands.
+	const default_export = (frm) => {
+		const { customer, shipping_address_name: address } = frm.doc;
+		if (frm.doc.docstatus !== 0 || frm.doc.einvoice_is_export || !customer || !address) return;
+		Promise.all([
+			frappe.db.get_value("Customer", customer, "einvoice_routing"),
+			frappe.db.get_value("Address", address, "country"),
+		]).then(([routing, country]) => {
+			const abroad = country.message.country && country.message.country !== "United Arab Emirates";
+			if (routing.message.einvoice_routing === "Export buyer not on Peppol" && abroad && frm.doc.shipping_address_name === address) {
+				frm.set_value("einvoice_is_export", 1);
+				frappe.show_alert({ message: __("Export ticked: the buyer is abroad and the goods ship to {0}.", [country.message.country]), indicator: "blue" });
+			}
+		});
+	};
+	frappe.ui.form.on("Sales Invoice", { customer: default_export, shipping_address_name: default_export });
 	frappe.ui.form.on("POS Invoice", handlers);
 	frappe.ui.form.on("Purchase Invoice", handlers);
 
