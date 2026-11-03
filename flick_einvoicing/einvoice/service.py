@@ -564,6 +564,12 @@ def sync_events(settings, max_pages: int = 20) -> int:
 	return seen
 
 
+def inbound_fetch_failed():
+	from flick_einvoicing.einvoice.inbound import FetchFailed
+
+	return FetchFailed
+
+
 def _sync_feed(settings, direction: str, cursor_field: str, handle, max_pages: int) -> int:
 	client = get_client(settings)
 	cursor = settings.get(cursor_field) or None
@@ -578,9 +584,27 @@ def _sync_feed(settings, direction: str, cursor_field: str, handle, max_pages: i
 			break
 
 		events = response.data.get("events") or []
+		stopped = None
 		for event in events:
-			handle(event)
-		seen += len(events)
+			try:
+				handle(event)
+			except inbound_fetch_failed() as e:
+				# Flick's guide: acknowledge only once our side is done. Stay on this event (resume
+				# after the last one handled) so the next run reads it again; nothing is lost.
+				frappe.log_error(f"E-invoice: incoming document not fetched, retried next run: {e}")
+				stopped = event
+				break
+			seen += 1
+		if stopped is not None:
+			done = events.index(stopped)
+			if done:
+				frappe.db.set_value(
+					"E Invoicing Settings",
+					settings.name,
+					{cursor_field: events[done - 1].get("id") or cursor, "events_synced_at": now_datetime()},
+					update_modified=False,
+				)
+			break
 
 		pagination = response.data.get("pagination") or {}
 		next_cursor = pagination.get("next_cursor") or cursor
@@ -625,11 +649,16 @@ def reconcile(sub, settings=None, after_retention_rule: bool = False) -> str:
 			duplicate=True,
 		)
 	if after_retention_rule:
+		# Flick's guide: treat this answer as "already filed, do not retry". Sending again never works.
 		_save_draft(
 			sub,
-			st.ERROR,
-			error_message="Flick says this number is already filed but no document with it was found. Check with Flick support.",
-			retry_minutes=360,
+			st.REJECTED,
+			validation_errors=(
+				"Flick answered that this invoice number is blocked by a retention rule, but no document with "
+				"it was found. Flick's developer guide (UAE, Known defects) says to treat that answer as "
+				"\"already filed, do not retry\", so it is not sent again automatically. Give the invoice a new "
+				"number (cancel and amend it), or ask Flick support about this number."
+			),
 		)
 	else:
 		# Confirmed not on Flick: safe to send again, and safe to cancel the invoice.

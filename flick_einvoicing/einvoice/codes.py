@@ -32,7 +32,7 @@ EXEMPT_OR_OUT_OF_SCOPE = {"E", "O"}
 # Categories that keep the 5% rate on the line but carry no VAT for the seller to charge:
 # reverse charge is accounted for by the buyer (Flick renders AE at 5% with 0.00 tax).
 RATE_WITHOUT_TAX = {"AE"}
-MARGIN = "N"  # Flick rejects margin-scheme documents in every combination today (known defect)
+MARGIN = "N"  # Flick rejects margin-scheme documents in every combination today (known defect); blocked at submit
 
 EXEMPTION_REASONS = {
 	"DL8.46.1": "Certain financial services",
@@ -140,3 +140,15 @@ def code_of(value: str | None) -> str | None:
 	if not value:
 		return None
 	return value.split(" - ", 1)[0].strip()
+
+# Embedded supporting documents: the PINT AE "Media Types (Subset: PINT)" code list,
+# docs.peppol.eu/poac/ae/v1.0.1/pint-ae/trn-invoice/codelist/MimeCode/
+ATTACHMENT_TYPES = {
+	"application/xml",
+	"application/pdf",
+	"image/png",
+	"image/jpeg",
+	"text/csv",
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+	"application/vnd.oasis.opendocument.spreadsheet",
+}

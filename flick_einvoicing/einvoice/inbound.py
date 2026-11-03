@@ -28,8 +28,13 @@ PLACEHOLDER_KEY = "flick_einvoicing_unmatched_item"
 RETURN_TYPES = {codes.CREDIT_NOTE, codes.CREDIT_NOTE_OUT_OF_SCOPE, codes.SELF_BILLED_CREDIT_NOTE}
 
 
+class FetchFailed(Exception):
+	"""Flick could not hand over an incoming document just now; the event must be read again."""
+
+
 def receive(document_id: str | None, settings) -> str | None:
-	"""Store one incoming document. Safe to call again for the same document."""
+	"""Store one incoming document. Safe to call again for the same document. Raises FetchFailed
+	when Flick cannot hand it over, so the feed stays on that event and the next run retries."""
 	if not document_id:
 		return None
 	if frappe.db.exists(RECEIVED, document_id):
@@ -37,7 +42,7 @@ def receive(document_id: str | None, settings) -> str | None:
 	client = get_client(settings)
 	response = client.get_document(document_id)
 	if not response.ok or not isinstance(response.data, dict):
-		return None
+		raise FetchFailed(f"{document_id}: {response.status or 'no answer'} {response.message}")
 	data = response.data
 	if data.get("direction") not in (INCOMING, None):
 		return None

@@ -251,6 +251,13 @@ class _Builder:
 			flags[key] = bool(inv.get(f"einvoice_{key}"))
 		if codes.MARGIN in categories:
 			flags["is_margin"] = True
+			# Flick's guide: "The margin scheme cannot be filed ... There is currently no accepted
+			# combination." Stop it here rather than let Flick refuse it after submit.
+			self.problem(
+				"Flick cannot file profit-margin-scheme invoices yet. Flick's developer guide (UAE, Known "
+				"defects): \"The margin scheme cannot be filed ... There is currently no accepted combination.\" "
+				"Use another VAT treatment for these lines, or wait for Flick's fix."
+			)
 			if categories != {codes.MARGIN}:
 				self.problem(
 					"A profit-margin-scheme invoice must have every line in the margin category (ibr-116-ae)."
@@ -1021,7 +1028,14 @@ class _Builder:
 		if len(content) > codes.ATTACHMENT_LIMIT_BYTES:
 			self.problem(f"Supporting document row {row.idx}: {file.file_name} is over Flick's 20 MB limit.")
 			return None
-		mime = mimetypes.guess_type(file.file_name or "")[0] or "application/octet-stream"
+		mime = mimetypes.guess_type(file.file_name or "")[0]
+		if mime not in codes.ATTACHMENT_TYPES:
+			self.problem(
+				f"Supporting document row {row.idx}: {file.file_name} is not an accepted file type. The UAE "
+				"e-invoice specification (PINT AE, Media Types code list) allows PDF, PNG, JPG, CSV, XLSX, ODS "
+				"and XML."
+			)
+			return None
 		return {"mime_code": mime, "filename": file.file_name, "content": base64.b64encode(content).decode()}
 
 	# Delivery and period
