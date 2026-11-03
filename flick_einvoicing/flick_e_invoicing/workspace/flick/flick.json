@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\":\"flick-dashboard\",\"type\":\"custom_block\",\"data\":{\"custom_block_name\":\"Flick Dashboard\",\"col\":12}},{\"id\":\"flick-spacer\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"flick-sc-0\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Submissions\",\"col\":3}},{\"id\":\"flick-sc-1\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"E-Invoice Status\",\"col\":3}},{\"id\":\"flick-sc-2\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Received\",\"col\":3}},{\"id\":\"flick-sc-3\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Settings\",\"col\":3}},{\"id\":\"flick-sc-4\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Help\",\"col\":3}},{\"id\":\"flick-sc-5\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"Raise Ticket\",\"col\":3}},{\"id\":\"flick-sc-6\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"My Tickets\",\"col\":3}},{\"id\":\"Cq-dEuPH6-\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"flick-card\",\"type\":\"card\",\"data\":{\"card_name\":\"E-Invoicing\",\"col\":4}}]",
+ "content": "[{\"id\": \"flick-dashboard\", \"type\": \"custom_block\", \"data\": {\"custom_block_name\": \"Flick Dashboard\", \"col\": 12}}, {\"id\": \"flick-spacer\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"flick-sc-0\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Submissions\", \"col\": 3}}, {\"id\": \"flick-sc-1\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"E-Invoice Status\", \"col\": 3}}, {\"id\": \"flick-sc-2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Received\", \"col\": 3}}, {\"id\": \"flicklog\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Log\", \"col\": 3}}, {\"id\": \"flick-sc-3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Settings\", \"col\": 3}}, {\"id\": \"flick-sc-4\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Help\", \"col\": 3}}, {\"id\": \"flickdash\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Flick Dashboard\", \"col\": 3}}, {\"id\": \"flickdevdocs\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Flick Developer Docs\", \"col\": 3}}, {\"id\": \"flick-sc-5\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Raise Ticket\", \"col\": 3}}, {\"id\": \"flick-sc-6\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"My Tickets\", \"col\": 3}}, {\"id\": \"flicksupset\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Support Settings\", \"col\": 3}}]",
  "creation": "2026-10-28 22:00:00",
  "custom_blocks": [
   {
@@ -17,88 +17,8 @@
  "indicator_color": "",
  "is_hidden": 0,
  "label": "Flick",
- "links": [
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "E-Invoicing",
-   "link_count": 7,
-   "onboard": 0,
-   "type": "Card Break"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "E Invoice Submission",
-   "link_count": 0,
-   "link_to": "E Invoice Submission",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "E Invoice Received",
-   "link_count": 0,
-   "link_to": "E Invoice Received",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 1,
-   "label": "E-Invoice Status",
-   "link_count": 0,
-   "link_to": "E-Invoice Status",
-   "link_type": "Report",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "E Invoice Log",
-   "link_count": 0,
-   "link_to": "E Invoice Log",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "E Invoicing Settings",
-   "link_count": 0,
-   "link_to": "E Invoicing Settings",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "E-Invoicing Help",
-   "link_count": 0,
-   "link_to": null,
-   "link_type": "URL",
-   "onboard": 0,
-   "type": "Link",
-   "url": "/einvoicing-help"
-  },
-  {
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Flick Support Settings",
-   "link_count": 0,
-   "link_to": "Flick Support Settings",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  }
- ],
- "modified": "2026-11-03 17:02:51.916857",
+ "links": [],
+ "modified": "2026-11-03 17:16:56.267829",
  "modified_by": "Administrator",
  "module": "Flick E-Invoicing",
  "name": "Flick",
@@ -134,6 +54,13 @@
   },
   {
    "color": "Grey",
+   "doc_view": "",
+   "label": "Log",
+   "link_to": "E Invoice Log",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
    "doc_view": "List",
    "label": "Settings",
    "link_to": "E Invoicing Settings",
@@ -149,6 +76,20 @@
   },
   {
    "color": "Grey",
+   "doc_view": "",
+   "label": "Flick Dashboard",
+   "type": "URL",
+   "url": "https://app.flick.network/login"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Flick Developer Docs",
+   "type": "URL",
+   "url": "https://developer.flick.network/developer-guides/global-einvoicing/united-arab-emirates/introduction"
+  },
+  {
+   "color": "Grey",
    "doc_view": "New",
    "label": "Raise Ticket",
    "link_to": "E Invoice Support Report",
@@ -159,6 +100,13 @@
    "doc_view": "List",
    "label": "My Tickets",
    "link_to": "E Invoice Support Report",
+   "type": "DocType"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Support Settings",
+   "link_to": "Flick Support Settings",
    "type": "DocType"
   }
  ],
