@@ -89,4 +89,4 @@ The flow tests need a UAE company keeping its books in AED. Everything they crea
 
 ### License
 
-Proprietary. See `license.txt`.
+MIT. See `license.txt`.

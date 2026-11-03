@@ -3,7 +3,7 @@ app_title = "Flick E-Invoicing"
 app_publisher = "Techountant"
 app_description = "UAE e-invoicing for ERPNext through Flick (PINT-AE over Peppol)"
 app_email = "ashar@techountant.com"
-app_license = "Proprietary"
+app_license = "mit"
 required_apps = ["erpnext"]
 
 # Includes in <head>
