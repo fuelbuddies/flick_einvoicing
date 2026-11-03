@@ -54,6 +54,9 @@ class EInvoicingSettings(Document):
 				)
 			)
 
+		if self.submission_mode == "Batch" and (self.batch_interval or 0) < 1:
+			frappe.throw(_("Send Every (Minutes) must be 1 or more."))
+
 		if not self.export_emirate:
 			# Goods usually leave from the company's own emirate.
 			self.export_emirate = company_emirate(self.company)

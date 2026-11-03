@@ -1,7 +1,7 @@
 """Background work. Each record gets its own transaction, so one bad invoice can't stop a batch."""
 
 import frappe
-from frappe.utils import add_to_date, now_datetime
+from frappe.utils import add_to_date, cint, get_datetime, now_datetime
 
 from flick_einvoicing.einvoice import service
 from flick_einvoicing.einvoice import status as st
@@ -35,13 +35,31 @@ def send_one(name: str):
 	_commit()
 
 
-def send_queued():
+def _batch_due(settings) -> bool:
+	"""A Batch company sends once every Send Every (Minutes); Live companies (retries) every run."""
+	if settings.submission_mode != "Batch":
+		return True
+	minutes = max(cint(settings.get("batch_interval")) or 10, 1)
+	last = settings.get("last_batch_at")
+	# 30 seconds' slack, so a job started a little early by the scheduler still counts.
+	return not last or get_datetime(last) <= add_to_date(now_datetime(), minutes=-minutes, seconds=30)
+
+
+def send_queued(force: bool = False):
 	"""Batch mode, plus every retry that is due, company by company.
 
+	Runs every minute; each Batch company sends at its own interval, unless forced from Send Now.
 	Pages on (creation, name) rather than an offset: sending removes rows from the set being
 	paged, so an offset would silently skip a page each round.
 	"""
 	for settings in _enabled_settings():
+		if not (force or _batch_due(settings)):
+			continue
+		if settings.submission_mode == "Batch":
+			frappe.db.set_value(
+				"E Invoicing Settings", settings.name, "last_batch_at", now_datetime(), update_modified=False
+			)
+			_commit()
 		if settings.submission_mode == "Batch" and settings.get("use_bulk"):
 			_send_bulk(settings)
 			continue

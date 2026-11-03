@@ -47,10 +47,11 @@ if (!flick_einvoicing.invoice_form_registered) {
 			.then(({ message }) => show_check(message));
 	};
 
-	// The guide, opened at one of its sections.
+	// The help (/einvoicing-help), opened in a new tab at one of its sections.
+	const HELP_SECTIONS = { receiving: "how-received-invoices-arrive" };
 	flick_einvoicing.open_guide = (section) => {
-		frappe.flags.flick_guide_section = section;
-		frappe.set_route("Form", "E Invoicing Guide");
+		const anchor = HELP_SECTIONS[section] || section || "";
+		window.open(`/einvoicing-help${anchor ? "#" + anchor : ""}`, "_blank", "noopener");
 	};
 
 	const run_action = (frm, action) => {

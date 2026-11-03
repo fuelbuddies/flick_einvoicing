@@ -27,10 +27,7 @@ frappe.ui.form.on("E Invoice Received", {
 		}
 		frm.add_custom_button(
 			__("How drafts are made"),
-			() => {
-				frappe.flags.flick_guide_section = "receiving";
-				frappe.set_route("Form", "E Invoicing Guide");
-			},
+			() => window.open("/einvoicing-help#how-received-invoices-arrive", "_blank", "noopener"),
 			__("View")
 		);
 	},

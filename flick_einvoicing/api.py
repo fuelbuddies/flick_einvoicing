@@ -109,6 +109,7 @@ def send_queued_now() -> None:
 		queue="long",
 		job_id="flick_einvoicing_send_queued",
 		deduplicate=True,
+		force=True,
 	)
 
 
@@ -334,7 +335,9 @@ def _invoice_banner(invoice) -> dict | None:
 			"more": max(len(problems) - BANNER_LINES, 0),
 		}
 	when = (
-		_("it is queued when you submit it and sent to Flick within 10 minutes")
+		_("it is queued when you submit it and sent to Flick within {0} minutes").format(
+			max(cint(settings.get("batch_interval")) or 10, 1)
+		)
 		if settings.submission_mode == "Batch"
 		else _("it goes to Flick when you submit it")
 	)

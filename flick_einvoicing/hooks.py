@@ -76,8 +76,8 @@ doc_events = {
 
 scheduler_events = {
 	"cron": {
-		# Batch-mode submissions, plus retries of anything that failed to reach Flick.
-		"*/10 * * * *": ["flick_einvoicing.jobs.send_queued"],
+		# Batch-mode submissions, each company at its own interval, plus retries that are due.
+		"* * * * *": ["flick_einvoicing.jobs.send_queued"],
 		# Status updates from Flick's events feed, and invoices received over Peppol.
 		"*/5 * * * *": ["flick_einvoicing.jobs.sync_events", "flick_einvoicing.support.retry_pending"],
 	},

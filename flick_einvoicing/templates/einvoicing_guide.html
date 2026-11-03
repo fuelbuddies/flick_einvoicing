@@ -91,7 +91,7 @@
 <p>
 	The app checks the invoice (tax treatment, party identifiers, addresses, units, totals) and stops the submit
 	with everything missing. It then creates an E Invoice Submission and sends it to Flick: right away in Live
-	mode, within ten minutes in Batch mode. With <i>Validate with Flick before Submit</i>, Flick validates it while
+	mode, in Batch mode with the next batch (every <i>Send Every (Minutes)</i>, 10 by default). With <i>Validate with Flick before Submit</i>, Flick validates it while
 	it is submitted. Flick reports it to the FTA and delivers it to the buyer over Peppol; the submission follows
 	both until they finish. The ledger entries are ERPNext's own, made on submit as always.
 </p>

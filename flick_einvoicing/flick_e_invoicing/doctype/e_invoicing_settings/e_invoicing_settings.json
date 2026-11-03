@@ -20,6 +20,8 @@
   "client_secret",
   "submission_section",
   "submission_mode",
+  "batch_interval",
+  "last_batch_at",
   "use_bulk",
   "start_date",
   "validate_before_submit",
@@ -174,11 +176,28 @@
   },
   {
    "default": "Live",
-   "description": "Live sends each invoice right after it is submitted. Batch sends every ten minutes.",
+   "description": "Live sends each invoice right after it is submitted. Batch sends queued invoices together, every few minutes as set below.",
    "fieldname": "submission_mode",
    "fieldtype": "Select",
    "label": "Submission Mode",
    "options": "Live\nBatch"
+  },
+  {
+   "default": "10",
+   "depends_on": "eval:doc.submission_mode == 'Batch'",
+   "description": "How often queued invoices go to Flick, in minutes. 1 or more.",
+   "fieldname": "batch_interval",
+   "fieldtype": "Int",
+   "label": "Send Every (Minutes)",
+   "non_negative": 1
+  },
+  {
+   "fieldname": "last_batch_at",
+   "fieldtype": "Datetime",
+   "hidden": 1,
+   "label": "Last Batch Sent At",
+   "read_only": 1,
+   "no_copy": 1
   },
   {
    "default": "0",
@@ -546,7 +565,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-10-31 18:00:00.000000",
+ "modified": "2026-11-03 16:21:03.883396",
  "modified_by": "Administrator",
  "module": "Flick E-Invoicing",
  "name": "E Invoicing Settings",
