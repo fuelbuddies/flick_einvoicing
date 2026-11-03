@@ -287,3 +287,45 @@
 	margin-left: 6px;
 	color: var(--text-muted);
 }
+
+/* Everything that counts something opens the submissions behind it. */
+a.panel {
+	display: block;
+	color: inherit;
+	text-decoration: none;
+}
+.clickable {
+	cursor: pointer;
+	transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.panel.clickable:hover,
+.panel.clickable:focus-visible {
+	border-color: var(--gray-400, #c0c6cc);
+}
+.company.clickable {
+	margin: 0 -8px;
+	padding-left: 8px;
+	padding-right: 8px;
+	border-radius: var(--border-radius, 6px);
+}
+.company.clickable:hover,
+.company.clickable:focus-visible {
+	background: var(--subtle-fg, rgba(0, 0, 0, 0.03));
+}
+.segment.clickable {
+	cursor: pointer;
+}
+.key-link,
+.title-link {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	color: inherit;
+	text-decoration: none;
+}
+.key-link:hover,
+.key-link:focus-visible,
+.title-link:hover,
+.title-link:focus-visible {
+	text-decoration: underline;
+}

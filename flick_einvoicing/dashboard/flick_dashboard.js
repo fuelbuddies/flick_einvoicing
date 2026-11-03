@@ -4,6 +4,10 @@ const SUBMISSION = "E Invoice Submission";
 const SETTINGS = "E Invoicing Settings";
 const PILL = { Queued: "blue", Rejected: "red", Error: "orange", Cancelled: "gray", Processing: "yellow", Completed: "green", Failed: "red" };
 const NEEDS_ATTENTION = ["Rejected", "Error", "Failed"];
+const ACCEPTED = ["Processing", "Completed", "Failed"];
+// Track states as status.track_stage reads them, so a click lists what the bar counted.
+const TRACK_DONE = { reporting: ["reported"], delivery: ["delivered", "received"] };
+const TRACK_FIELDS = { reporting: ["reporting_status", "reporting_settled"], delivery: ["exchange_status", "exchange_settled"] };
 const PERIODS = [
 	[7, __("7 days")],
 	[30, __("30 days")],
@@ -52,6 +56,29 @@ function link(label, href, go, cls = "action") {
 	);
 }
 
+// The submissions list, narrowed to the dashboard's period and company plus `filters`.
+function period_filters(filters = {}) {
+	const out = { ...filters };
+	if (state.company) out.company = state.company;
+	if (state.days) out.creation = [">=", frappe.datetime.add_days(frappe.datetime.now_datetime(), -state.days)];
+	return out;
+}
+const list_route = (filters) => () => frappe.set_route("List", SUBMISSION, period_filters(filters));
+
+function track_filters(name, stage) {
+	const [field, settled] = TRACK_FIELDS[name];
+	const base = { status: ["in", ACCEPTED] };
+	const quiet = [...TRACK_DONE[name], "not_required", "cancelled"];
+	return {
+		done: { ...base, [field]: ["in", TRACK_DONE[name]] },
+		not_required: { ...base, [field]: "not_required" },
+		cancelled: { ...base, [field]: "cancelled" },
+		failed: { ...base, [field]: "failed", [settled]: 1 },
+		// still moving, Flick retrying a failure included
+		progress: { ...base, [field]: ["not in", quiet], [settled]: 0 },
+	}[stage];
+}
+
 // Companies: where each UAE company stands, as of now.
 function render_companies(rows) {
 	$(".companies-title").textContent = __("Companies");
@@ -90,13 +117,27 @@ function company_row(row) {
 		notes.push(__("Status updates have not been read for over half an hour. Check that the scheduler is running on this site."));
 	}
 	notes.push(...(row.warnings || []));
-	return h("div", { class: "company" }, head, meta, notes.map((note) => h("div", { class: "warning-note" }, note)));
+	const go = row.record ? open : () => frappe.new_doc(SETTINGS, { company: row.company });
+	return h(
+		"div",
+		{
+			class: "company clickable",
+			role: "link",
+			tabindex: "0",
+			title: row.record ? __("Open E Invoicing Settings") : __("Set up e-invoicing"),
+			onclick: (event) => !event.target.closest("a") && go(),
+			onkeydown: (event) => event.key === "Enter" && !event.target.closest("a") && go(),
+		},
+		head,
+		meta,
+		notes.map((note) => h("div", { class: "warning-note" }, note))
+	);
 }
 
 // Needs attention: refused, stuck on the way, or failed on a track, whatever the date.
 function render_attention({ count: total, rows }) {
-	$(".attention-title").textContent = __("Needs attention");
 	const show_all = () => frappe.set_route("List", SUBMISSION, { status: ["in", NEEDS_ATTENTION] });
+	$(".attention-title").replaceChildren(link(__("Needs attention"), url(SUBMISSION), show_all, "title-link"));
 	$(".attention-all").replaceChildren(total > rows.length ? link(__("View all {0}", [count(total)]), url(SUBMISSION), show_all) : "");
 	if (!rows.length) {
 		$(".attention").replaceChildren(h("p", { class: "empty" }, __("Nothing needs attention.")));
@@ -161,60 +202,72 @@ function render_period(statuses, tracks) {
 	const span = state.days ? __("made in the last {0} days", [state.days]) : __("made so far");
 
 	$(".figures").replaceChildren(
-		h(
-			"div",
-			{ class: "panel hero" },
-			h("div", { class: "figure-label" }, __("Accepted by Flick")),
-			h("div", { class: "hero-value" }, answered ? percent(accepted, answered) : "–"),
-			h(
-				"div",
-				{ class: "figure-note" },
-				answered ? __("{0} of the {1} submissions Flick answered", [count(accepted), count(answered)]) : __("Flick has not answered a submission in this period.")
-			)
+		link(
+			[
+				h("div", { class: "figure-label" }, __("Accepted by Flick")),
+				h("div", { class: "hero-value" }, answered ? percent(accepted, answered) : "–"),
+				h(
+					"div",
+					{ class: "figure-note" },
+					answered ? __("{0} of the {1} submissions Flick answered", [count(accepted), count(answered)]) : __("Flick has not answered a submission in this period.")
+				),
+			],
+			url(SUBMISSION),
+			list_route({ status: ["in", ACCEPTED] }),
+			"panel hero clickable"
 		),
-		tile(__("Submissions"), total, null, span),
-		tile(__("Accepted"), accepted, "done", __("{0} completed", [count(statuses.Completed)])),
-		tile(__("Refused"), refused, "failed", __("nothing was filed")),
-		tile(__("Not sent yet"), sum("Queued", "Error"), "queued", __("{0} queued, {1} being retried", [count(statuses.Queued), count(statuses.Error)])),
-		tile(__("Cancelled"), sum("Cancelled"), "quiet", __("before reaching Flick"))
+		tile(__("Submissions"), total, null, span, {}),
+		tile(__("Accepted"), accepted, "done", __("{0} completed", [count(statuses.Completed)]), { status: ["in", ACCEPTED] }),
+		tile(__("Refused"), refused, "failed", __("nothing was filed"), { status: "Rejected" }),
+		tile(__("Not sent yet"), sum("Queued", "Error"), "queued", __("{0} queued, {1} being retried", [count(statuses.Queued), count(statuses.Error)]), {
+			status: ["in", ["Queued", "Error"]],
+		}),
+		tile(__("Cancelled"), sum("Cancelled"), "quiet", __("before reaching Flick"), { status: "Cancelled" })
 	);
 	$(".tracks").replaceChildren(
-		track(__("FTA reporting"), __("Reported"), tracks.reporting, accepted),
-		track(__("Delivery to the buyer over Peppol"), __("Delivered"), tracks.delivery, accepted)
+		track("reporting", __("FTA reporting"), __("Reported"), tracks.reporting, accepted),
+		track("delivery", __("Delivery to the buyer over Peppol"), __("Delivered"), tracks.delivery, accepted)
 	);
 }
 
-function tile(label, value, tone, note) {
-	return h(
-		"div",
-		{ class: "panel" },
-		h("div", { class: "figure-label" }, tone && h("span", { class: `dot tone-${tone}`, "aria-hidden": "true" }), label),
-		h("div", { class: "tile-value" }, count(value)),
-		h("div", { class: "figure-note" }, note)
+function tile(label, value, tone, note, filters) {
+	return link(
+		[
+			h("div", { class: "figure-label" }, tone && h("span", { class: `dot tone-${tone}`, "aria-hidden": "true" }), label),
+			h("div", { class: "tile-value" }, count(value)),
+			h("div", { class: "figure-note" }, note),
+		],
+		url(SUBMISSION),
+		list_route(filters),
+		"panel clickable"
 	);
 }
 
 // One track of the accepted documents as a part-to-whole bar, with every count in the key.
-function track(title, done_label, stages, accepted) {
+function track(name, title, done_label, stages, accepted) {
 	const running = stages.in_progress + stages.retrying;
 	const parts = [
-		{ tone: "done", label: done_label, value: stages.done },
-		{ tone: "quiet", label: __("Not required"), value: stages.not_required },
+		{ tone: "done", stage: "done", label: done_label, value: stages.done },
+		{ tone: "quiet", stage: "not_required", label: __("Not required"), value: stages.not_required },
 		{
 			tone: "progress",
+			stage: "progress",
 			label: __("In progress"),
 			value: running,
 			note: stages.retrying ? __("{0} failed once, Flick retrying", [count(stages.retrying)]) : null,
 		},
-		{ tone: "failed", label: __("Failed"), value: stages.failed },
-		{ tone: "cancelled", label: __("Cancelled"), value: stages.cancelled },
+		{ tone: "failed", stage: "failed", label: __("Failed"), value: stages.failed },
+		{ tone: "cancelled", stage: "cancelled", label: __("Cancelled"), value: stages.cancelled },
 	].filter((part) => part.tone !== "cancelled" || part.value);
 	const segments = accepted
 		? parts
 				.filter((part) => part.value)
 				.map((part) =>
 					h("span", {
-						class: `segment tone-${part.tone}`,
+						class: `segment clickable tone-${part.tone}`,
+						role: "link",
+						onclick: list_route(track_filters(name, part.stage)),
+						onkeydown: (event) => event.key === "Enter" && list_route(track_filters(name, part.stage))(),
 						style: `flex-grow: ${part.value}`,
 						tabindex: "0",
 						"aria-label": `${part.label}: ${count(part.value)} (${percent(part.value, accepted)})`,
@@ -245,9 +298,12 @@ function track(title, done_label, stages, accepted) {
 				h(
 					"li",
 					{},
-					h("span", { class: `key tone-${part.tone}`, "aria-hidden": "true" }),
-					part.label,
-					h("b", {}, count(part.value)),
+					link(
+						[h("span", { class: `key tone-${part.tone}`, "aria-hidden": "true" }), part.label, h("b", {}, count(part.value))],
+						url(SUBMISSION),
+						list_route(track_filters(name, part.stage)),
+						"key-link"
+					),
 					part.note && h("span", { class: "key-note" }, part.note)
 				)
 			)
