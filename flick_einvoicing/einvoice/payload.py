@@ -389,6 +389,12 @@ class _Builder:
 		}
 		self.price_discount(line, item, amount, qty)
 		self.item_details(line, item, category, treatment, label)
+		# Flick's guide, invoice_lines[].order_reference_id: "Purchase order this line belongs to, when
+		# it differs from the document-level order." The buyer's PO number on this line's sales order.
+		if item.get("sales_order"):
+			line_po = cstr(frappe.db.get_value("Sales Order", item.sales_order, "po_no")).strip()
+			if line_po and line_po != cstr(self.inv.get("po_no")).strip():
+				line["order_reference_id"] = line_po
 		if self.inv.currency != "AED":
 			line["line_amount_aed"] = self.money(
 				item.base_amount if self.allowance_style else item.base_net_amount
@@ -736,7 +742,11 @@ class _Builder:
 			if not peppol_id:
 				self.problem(f"{doctype} {name} has no Peppol ID.")
 			elif not re.match(codes.PEPPOL_ID_PATTERN, peppol_id):
-				self.problem(f"{doctype} {name}: Peppol ID {peppol_id} should look like 0235:1234567890.")
+				self.problem(
+					f"{doctype} {name}: Peppol ID {peppol_id} should be 0235: followed by the 10-digit Peppol "
+					"number starting with 1, e.g. 0235:1234567890 (not the 15-digit TRN). Flick's guide: "
+					"receiving_party.peppol_id, size 10 digits (1XXXXXXXXX)."
+				)
 
 		trn = cstr(inv.get("tax_id") or party.get("tax_id")).strip()
 		if trn and not re.match(codes.TRN_PATTERN, trn):
@@ -754,7 +764,10 @@ class _Builder:
 				"authority_name": cstr(party.get("einvoice_trade_licence_authority")) or None,
 			}
 			if not identifiers["AE:TL"]["authority_name"]:
-				self.problem(f"{doctype} {name}: a trade licence needs its licensing authority (ibr-101-ae).")
+				# Flick's guide: authority_name is required with any AE:TL, "ibr-172-ae seller, ibr-101-ae buyer";
+				# on a self-billed document this party is the supplier, the seller.
+				rule = "ibr-172-ae" if self.self_billed else "ibr-101-ae"
+				self.problem(f"{doctype} {name}: a trade licence needs its licensing authority ({rule}).")
 
 		# The buyer's own identifier (Flick's party_identifier, IBT-046): what names a buyer with no
 		# TRN and no Peppol ID of its own. Left empty, its trade licence number stands in.
@@ -778,6 +791,8 @@ class _Builder:
 
 		block = {
 			"legal_name": cstr(legal_name),
+			# Flick's guide: "Trading name the buyer operates under, when it differs from the legal name."
+			"trade_name": (cstr(party.get("einvoice_trade_name")).strip() or None) if doctype == "Customer" else None,
 			"peppol_id": peppol_id,
 			"party_identifier": party_identifier or None,
 			"identifiers": _drop_empty(identifiers),
@@ -1043,7 +1058,9 @@ class _Builder:
 	def delivery(self) -> dict | None:
 		inv = self.inv
 		flagged = inv.get("einvoice_is_ecommerce") or inv.get("einvoice_is_export")
-		shipping = None if self.self_billed else inv.get("shipping_address_name")
+		# Self-billed: the purchase invoice's own Shipping Address (where the goods come to). Flick's guide
+		# pairs is_export and is_ecommerce with a delivery address and does not exempt self-billing.
+		shipping = inv.get("shipping_address") if self.self_billed else inv.get("shipping_address_name")
 		block = {
 			"actual_delivery_date": self.delivery_date(),
 			"party_name": cstr(inv.get("einvoice_delivery_party")) or None,
@@ -1317,6 +1334,7 @@ ALLOWED_KEYS = {
 	"issuing_party": {"trade_name": _ANY, **_CONTACT},
 	"receiving_party": {
 		"legal_name": _ANY,
+		"trade_name": _ANY,
 		"peppol_id": _ANY,
 		"party_identifier": _ANY,
 		"identifiers": {"AE:VAT": {"value": _ANY}, "AE:TL": {"value": _ANY, "authority_name": _ANY}},
@@ -1370,6 +1388,7 @@ ALLOWED_KEYS = {
 					"invoice_period_start_date",
 					"invoice_period_end_date",
 					"buyers_item_code",
+					"order_reference_id",
 					"supplier_item_code",
 					"standard_item_id",
 					"standard_item_id_scheme",

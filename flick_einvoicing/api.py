@@ -7,7 +7,7 @@ from urllib.parse import quote
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, cint, now_datetime, time_diff_in_seconds
+from frappe.utils import add_days, cint, cstr, flt, now_datetime, time_diff_in_seconds
 
 from flick_einvoicing.einvoice import code_lists, inbound, reconcile, service, setup
 from flick_einvoicing.einvoice import status as st
@@ -346,12 +346,12 @@ def _invoice_banner(invoice) -> dict | None:
 		flick,
 		_("Check with Flick asks Flick for its answer now, before you submit. Nothing is filed or delivered."),
 	]
-	warning = export_vat_warning(invoice, settings)
-	if warning:
+	warnings = [w for w in (export_vat_warning(invoice, settings), advance_warning(invoice)) if w]
+	if warnings:
 		return {
 			"color": "yellow",
-			"title": _("Ready to e-invoice, but check the VAT: {0}").format(warning),
-			"lines": lines,
+			"title": _("Ready to e-invoice, but check: {0}").format(warnings[0]),
+			"lines": warnings[1:] + lines,
 			"action": {"label": _("Check with Flick"), "check": True},
 		}
 	return {
@@ -360,6 +360,24 @@ def _invoice_banner(invoice) -> dict | None:
 		"lines": lines,
 		"action": {"label": _("Check with Flick"), "check": True},
 	}
+
+
+def advance_warning(invoice) -> str | None:
+	"""An invoice settling an advance. Flick's guide (Advances and retention): "Issue a tax invoice
+	for the advance at the time of receipt. The final invoice later covers only the remaining ...
+	Leave invoice_totals.prepaid_amount off the final invoice"; the advance invoice number goes in
+	document_references. A warning, never a block: without an advance tax invoice the full amount is
+	right."""
+	if invoice.doctype != "Sales Invoice" or invoice.get("is_return") or not flt(invoice.get("total_advance")):
+		return None
+	if any(cstr(row.document_identifier).strip() for row in invoice.get("einvoice_preceding_invoices") or []):
+		return None
+	return _(
+		"an advance is allocated on it. If a tax invoice was already issued for that advance, Flick's guide "
+		"(Advances and retention) says the final invoice covers only the remainder and names the advance "
+		"invoice: list it under Preceding Invoices on the E-Invoicing tab. If no advance invoice was issued, "
+		"the full amount is right."
+	)
 
 
 def export_vat_warning(invoice, settings) -> str | None:
