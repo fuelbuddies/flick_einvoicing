@@ -9,6 +9,13 @@ required_apps = ["erpnext"]
 # Includes in <head>
 # ------------------
 
+# Submissions (and received e-invoices) in the invoice's Connections tab.
+override_doctype_dashboards = {
+	"Sales Invoice": "flick_einvoicing.connections.sales_invoice",
+	"POS Invoice": "flick_einvoicing.connections.pos_invoice",
+	"Purchase Invoice": "flick_einvoicing.connections.purchase_invoice",
+}
+
 # The E-Invoice Status column as a coloured pill, beside the invoice's own status.
 doctype_list_js = {
 	"Sales Invoice": "public/js/invoice_list.js",
