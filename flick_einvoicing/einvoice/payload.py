@@ -389,12 +389,6 @@ class _Builder:
 		}
 		self.price_discount(line, item, amount, qty)
 		self.item_details(line, item, category, treatment, label)
-		# Flick's guide, invoice_lines[].order_reference_id: "Purchase order this line belongs to, when
-		# it differs from the document-level order." The buyer's PO number on this line's sales order.
-		if item.get("sales_order"):
-			line_po = cstr(frappe.db.get_value("Sales Order", item.sales_order, "po_no")).strip()
-			if line_po and line_po != cstr(self.inv.get("po_no")).strip():
-				line["order_reference_id"] = line_po
 		if self.inv.currency != "AED":
 			line["line_amount_aed"] = self.money(
 				item.base_amount if self.allowance_style else item.base_net_amount
@@ -1388,7 +1382,6 @@ ALLOWED_KEYS = {
 					"invoice_period_start_date",
 					"invoice_period_end_date",
 					"buyers_item_code",
-					"order_reference_id",
 					"supplier_item_code",
 					"standard_item_id",
 					"standard_item_id_scheme",
