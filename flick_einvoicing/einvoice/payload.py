@@ -753,14 +753,15 @@ class _Builder:
 			peppol_id
 			and not re.match(codes.PEPPOL_ID_PATTERN, peppol_id)
 			and not inv.get("einvoice_is_export")
-			and not identifiers
+			and not trn
 		):
 			# ibr-135-ae: a buyer on a placeholder address (abroad, not subject, deemed) has no Peppol
-			# ID to name them, so outside an export Flick needs their TRN or trade licence instead.
+			# ID to name them, so outside an export Flick needs the buyer's TRN. A trade licence does
+			# not count: Flick refused one in place of the TRN on pre-production (2026-11-03).
 			self.problem(
-				f"{doctype} {name} has no Peppol address of its own and no TRN or trade licence, so Flick cannot "
-				"identify the buyer (ibr-135-ae). Tick Export if the goods leave the UAE; otherwise, as for "
-				f"services, add the buyer's TRN or trade licence and licensing authority on the {doctype.lower()}."
+				f"{doctype} {name} has no Peppol address of its own and no TRN, so Flick cannot identify the "
+				"buyer (ibr-135-ae). Tick Export if the goods leave the UAE. Otherwise the buyer's TRN is "
+				"needed; a trade licence is not accepted in its place."
 			)
 
 		block = {
