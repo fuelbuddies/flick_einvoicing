@@ -617,7 +617,7 @@ def dashboard(days: int = 30, company: str | None = None) -> dict:
 	frappe.has_permission(SUBMISSION, "read", throw=True)
 	companies = setup.overview(details=frappe.has_permission(SETTINGS, "read"))
 	last_sent = dict(
-		frappe.get_list(SUBMISSION, fields=["company", "max(last_attempt)"], group_by="company", as_list=True)
+		frappe.get_list(SUBMISSION, fields=["company", {"MAX": "last_attempt"}], group_by="company", as_list=True)
 	)
 	for row in companies:
 		row["last_sent"] = last_sent.get(row["company"])
@@ -641,7 +641,7 @@ def dashboard(days: int = 30, company: str | None = None) -> dict:
 			"reporting_settled",
 			"exchange_status",
 			"exchange_settled",
-			"count(name) as count",
+			{"COUNT": "name", "as": "count"},
 		],
 		group_by="reporting_status, reporting_settled, exchange_status, exchange_settled",
 	):
@@ -651,7 +651,9 @@ def dashboard(days: int = 30, company: str | None = None) -> dict:
 	return {
 		"companies": companies,
 		"attention": {
-			"count": frappe.get_list(SUBMISSION, filters=attention, fields=["count(name) as count"])[0].count,
+			"count": frappe.get_list(
+				SUBMISSION, filters=attention, fields=[{"COUNT": "name", "as": "count"}]
+			)[0].count,
 			"rows": frappe.get_list(
 				SUBMISSION,
 				filters=attention,
@@ -662,7 +664,7 @@ def dashboard(days: int = 30, company: str | None = None) -> dict:
 		},
 		"statuses": dict(
 			frappe.get_list(
-				SUBMISSION, filters=period, fields=["status", "count(name)"], group_by="status", as_list=True
+				SUBMISSION, filters=period, fields=["status", {"COUNT": "name"}], group_by="status", as_list=True
 			)
 		),
 		"tracks": tracks,

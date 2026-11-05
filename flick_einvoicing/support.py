@@ -668,7 +668,7 @@ def _collect_heartbeat():
 		frappe.get_all(
 			"Scheduled Job Log",
 			filters={"status": "Failed", "creation": [">", since], "scheduled_job_type": ["in", jobs]},
-			fields=["scheduled_job_type as job", "count(*) as count"],
+			fields=["scheduled_job_type as job", {"COUNT": "*", "as": "count"}],
 			group_by="scheduled_job_type",
 			order_by="count desc",
 			limit=5,
