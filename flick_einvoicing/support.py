@@ -27,6 +27,8 @@ from frappe.utils import (
 	now_datetime,
 )
 
+from flick_einvoicing import compat
+
 SETTINGS = "Flick Support Settings"
 REPORT = "E Invoice Support Report"
 APP = "flick_einvoicing"
@@ -306,11 +308,9 @@ def _screenshot(report):
 		return []
 	try:
 		file = frappe.get_doc("File", {"file_url": report.screenshot})
-		content = file.get_content()
+		content = compat.file_bytes(file)
 	except Exception:
 		return []
-	if isinstance(content, str):
-		content = content.encode()
 	if len(content) > MAX_SCREENSHOT_BYTES:
 		return []
 	return [{"file_name": file.file_name, "content": base64.b64encode(content).decode()}]
@@ -668,7 +668,7 @@ def _collect_heartbeat():
 		frappe.get_all(
 			"Scheduled Job Log",
 			filters={"status": "Failed", "creation": [">", since], "scheduled_job_type": ["in", jobs]},
-			fields=["scheduled_job_type as job", "count(*) as count"],
+			fields=["scheduled_job_type as job", compat.count()],
 			group_by="scheduled_job_type",
 			order_by="count desc",
 			limit=5,

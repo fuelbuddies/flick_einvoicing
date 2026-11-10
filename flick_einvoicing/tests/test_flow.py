@@ -34,7 +34,6 @@ from flick_einvoicing.tests.utils import (
 	PREFIX,
 	SUPPLIER_PEPPOL,
 	FakeFlick,
-	_branch_of,
 	_item,
 	accepted,
 	binary,
@@ -1392,7 +1391,6 @@ class TestReceivingAgainstOrders(FlowTestCase):
 					{"item_code": item, "qty": qty, "rate": rate, "schedule_date": add_days(today(), 7)}
 					for item, qty, rate in lines
 				],
-				**_branch_of(self.fx.company, "Purchase Order"),
 			}
 		)
 		po.flags.ignore_mandatory = True
@@ -1463,7 +1461,8 @@ class TestReceivingAgainstOrders(FlowTestCase):
 		name = self.received([self.line(1, 1, 100, "X-1", name="QA & Test / QA <Test> / " * 8)])
 		pi = frappe.get_doc("Purchase Invoice", inbound.create_purchase_invoice(name))
 		self.assertLessEqual(len(pi.items[0].item_name), 140)
-		self.assertTrue(pi.items[0].item_name.startswith("QA &amp; Test / QA &lt;Test&gt;"))
+		# v15 escapes the unknown tag to &lt;Test&gt;; v16 drops it.
+		self.assertTrue(pi.items[0].item_name.startswith("QA &amp; Test / QA "))
 
 	def test_invoice_in_another_currency_needs_a_payable_account_in_it(self):
 		setting = ("Accounts Settings", "allow_multi_currency_invoices_against_single_party_account")

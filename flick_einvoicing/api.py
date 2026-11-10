@@ -9,6 +9,7 @@ import frappe
 from frappe import _
 from frappe.utils import add_days, cint, cstr, flt, now_datetime, time_diff_in_seconds
 
+from flick_einvoicing import compat
 from flick_einvoicing.einvoice import code_lists, inbound, reconcile, service, setup
 from flick_einvoicing.einvoice import status as st
 from flick_einvoicing.einvoice.payload import invoice_problems
@@ -616,11 +617,16 @@ def dashboard(days: int = 30, company: str | None = None) -> dict:
 	the rest counts the submissions made in the last `days` (0 for all time)."""
 	frappe.has_permission(SUBMISSION, "read", throw=True)
 	companies = setup.overview(details=frappe.has_permission(SETTINGS, "read"))
-	last_sent = dict(
-		frappe.get_list(SUBMISSION, fields=["company", "max(last_attempt)"], group_by="company", as_list=True)
-	)
 	for row in companies:
-		row["last_sent"] = last_sent.get(row["company"])
+		# One latest row per company: Frappe v16 refuses SQL functions written as strings.
+		latest = frappe.get_list(
+			SUBMISSION,
+			filters={"company": row["company"], "last_attempt": ("is", "set")},
+			pluck="last_attempt",
+			order_by="last_attempt desc",
+			limit=1,
+		)
+		row["last_sent"] = latest[0] if latest else None
 		synced = row.get("events_synced_at")
 		row["updates_late"] = bool(
 			row["enabled"]
@@ -641,7 +647,7 @@ def dashboard(days: int = 30, company: str | None = None) -> dict:
 			"reporting_settled",
 			"exchange_status",
 			"exchange_settled",
-			"count(name) as count",
+			compat.count(),
 		],
 		group_by="reporting_status, reporting_settled, exchange_status, exchange_settled",
 	):
@@ -651,7 +657,7 @@ def dashboard(days: int = 30, company: str | None = None) -> dict:
 	return {
 		"companies": companies,
 		"attention": {
-			"count": frappe.get_list(SUBMISSION, filters=attention, fields=["count(name) as count"])[0].count,
+			"count": frappe.get_list(SUBMISSION, filters=attention, fields=[compat.count()])[0].count,
 			"rows": frappe.get_list(
 				SUBMISSION,
 				filters=attention,
@@ -662,7 +668,7 @@ def dashboard(days: int = 30, company: str | None = None) -> dict:
 		},
 		"statuses": dict(
 			frappe.get_list(
-				SUBMISSION, filters=period, fields=["status", "count(name)"], group_by="status", as_list=True
+				SUBMISSION, filters=period, fields=["status", compat.count()], group_by="status", as_list=True
 			)
 		),
 		"tracks": tracks,

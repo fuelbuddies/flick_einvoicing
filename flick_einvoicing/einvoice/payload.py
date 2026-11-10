@@ -25,6 +25,7 @@ from decimal import ROUND_HALF_UP, Decimal
 import frappe
 from frappe.utils import cstr, flt, get_datetime, get_system_timezone, getdate, strip_html
 
+from flick_einvoicing.compat import file_bytes
 from flick_einvoicing.einvoice import code_lists, codes
 
 SALES_TEMPLATE = "Sales Taxes and Charges Template"
@@ -405,11 +406,14 @@ class _Builder:
 			why = " (under reverse charge the buyer accounts for the VAT)" if category == "AE" else ""
 			# ERPNext's own UAE Zero and Exempted templates name accounts of their own, which leaves the
 			# invoice's 5% row charging the line.
-			uncovered = [
-				tax.account_head
-				for tax in self.vat_rows
-				if flt(tax.rate) and tax.account_head not in self.item_rates(item)
-			]
+			# Read the template itself: from ERPNext v16 the line's item_tax_rate also carries the
+			# invoice's own rates for accounts the template leaves out.
+			listed = (
+				{d.tax_type for d in frappe.get_cached_doc("Item Tax Template", item.item_tax_template).taxes}
+				if item.get("item_tax_template")
+				else set()
+			)
+			uncovered = [tax.account_head for tax in self.vat_rows if flt(tax.rate) and tax.account_head not in listed]
 			fix = (
 				f" Its Item Tax Template {item.item_tax_template} does not list {', '.join(uncovered)}, the "
 				"account the invoice charges VAT to: add it to the template at 0%."
@@ -1031,9 +1035,7 @@ class _Builder:
 			self.problem(f"Supporting document row {row.idx}: file {row.file} was not found.")
 			return None
 		file = frappe.get_doc("File", file_name)
-		content = file.get_content()
-		if isinstance(content, str):
-			content = content.encode()
+		content = file_bytes(file)
 		if len(content) > codes.ATTACHMENT_LIMIT_BYTES:
 			self.problem(f"Supporting document row {row.idx}: {file.file_name} is over Flick's 20 MB limit.")
 			return None
