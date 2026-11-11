@@ -54,7 +54,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Updates Customer Field",
-   "options": "\ncustomer_name\ntax_id\neinvoice_peppol_id\neinvoice_trade_licence\neinvoice_trade_licence_authority\neinvoice_trade_name\neinvoice_free_zone\neinvoice_phase\neinvoice_go_live_date\neinvoice_contact_email\naddress.address_line1\naddress.address_line2\naddress.city\naddress.emirate",
+   "options": "\ncustomer_name\neinvoice_legal_name\ntax_id\neinvoice_peppol_id\neinvoice_trade_licence\neinvoice_trade_licence_authority\neinvoice_trade_name\neinvoice_free_zone\neinvoice_phase\neinvoice_go_live_date\neinvoice_contact_email\naddress.address_line1\naddress.address_line2\naddress.city\naddress.emirate",
    "description": "Filled in on the customer (address.* on its billing address) when you click Apply to Customer on the response."
   },
   {

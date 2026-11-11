@@ -21,7 +21,14 @@ EMIRATES = "AUH\nDXB\nSHJ\nUAQ\nFUJ\nAJM\nRAK"
 
 # The questions a new site starts with: (question, type, mandatory, choices, help, customer field)
 DEFAULT_QUESTIONS = [
-	("Full legal name of your company, as registered with the relevant authorities", "Text", 1, None, None, None),
+	(
+		"Full legal name of your company, as registered with the relevant authorities",
+		"Text",
+		1,
+		None,
+		None,
+		"einvoice_legal_name",
+	),
 	("UAE e-invoicing implementation phase for your entity", "Select", 1, PHASES, None, "einvoice_phase"),
 	("Planned go-live date, if before your mandatory implementation date", "Date", 0, None, None, "einvoice_go_live_date"),
 	("E-invoicing TIN", "Text", 1, None, "Used as your Peppol ID for e-invoicing transactions.", "einvoice_peppol_id"),

@@ -727,7 +727,7 @@ class _Builder:
 		else:
 			doctype, name = "Customer", inv.customer
 			party = frappe.get_cached_doc("Customer", name)
-			legal_name = inv.get("customer_name") or party.customer_name
+			legal_name = cstr(party.get("einvoice_legal_name")).strip() or inv.get("customer_name") or party.customer_name
 			address_name = inv.get("customer_address")
 			routing = party.get("einvoice_routing") or codes.ROUTING_PEPPOL
 

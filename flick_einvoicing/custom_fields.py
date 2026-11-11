@@ -287,6 +287,12 @@ def get_custom_fields() -> dict[str, list[dict]]:
 				"tax_id",
 				[
 					{
+						"fieldname": "einvoice_legal_name",
+						"label": "Legal Name",
+						"fieldtype": "Data",
+						"description": "Registered legal name, sent as the buyer name on the e-invoice. Left empty, the customer name is sent.",
+					},
+					{
 						"fieldname": "einvoice_routing",
 						"label": "E-Invoice Routing",
 						"fieldtype": "Select",
