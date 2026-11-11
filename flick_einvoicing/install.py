@@ -135,7 +135,7 @@ def ensure_uom_code_list():
 	source = code_lists.read(code_lists.UNITS)
 	details = {
 		"description": "Units of measure for UAE e-invoicing: every code PINT-AE allows. "
-		"Link each ERPNext UOM you invoice in to one code under Applies To.",
+		"Set each ERPNext UOM's Common Code, or link the UOM to one code here under Applies To.",
 		"version": f"PINT-AE list issued {source['issued']}",
 		"url": source["source"],
 	}

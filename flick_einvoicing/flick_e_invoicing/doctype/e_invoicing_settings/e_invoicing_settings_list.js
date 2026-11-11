@@ -57,7 +57,7 @@ function render_setup($wrapper, rows) {
 					: `<p class="mb-3">${__("No company on this site has United Arab Emirates as its country.")}</p>`
 			}
 			<p class="text-muted small mb-0">
-				${__("Then, for every company: link the UOMs you invoice in to their unit codes (Code List {0}, Applies To); give customers a Peppol ID, their TRN in Tax ID and a billing address with its emirate; and before going live, open a saved draft invoice and click Check with Flick in its banner: Flick validates it without filing anything.", ["<b>UN/ECE Recommendation 20</b>"])}
+				${__("Then, for every company: set the Common Code on each UOM you invoice in (a {0} code, e.g. LTR, KGM, H87); give customers a Peppol ID, their TRN in Tax ID and a billing address with its emirate; and before going live, open a saved draft invoice and click Check with Flick in its banner: Flick validates it without filing anything.", ["<b>UN/ECE Recommendation 20</b>"])}
 				<a href="/app/e-invoicing-guide">${__("Read the guide")}</a>: ${__("what the app does to invoices, and what it posts.")}
 			</p>
 		</div>

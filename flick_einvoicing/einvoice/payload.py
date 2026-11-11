@@ -521,6 +521,13 @@ class _Builder:
 			self._uom_codes[uom] = self._resolve_uom(uom, label)
 		return self._uom_codes[uom]
 
+	@staticmethod
+	def _uom_common_code(uom: str) -> str:
+		"""The Common Code on the UOM form (ERPNext versions that have the field)."""
+		if not frappe.get_meta("UOM").has_field("common_code"):
+			return ""
+		return cstr(frappe.db.get_value("UOM", uom, "common_code")).strip().upper()
+
 	def _resolve_uom(self, uom: str, label: str) -> str | None:
 		code_list = self.settings.uom_code_list
 		if not code_list:
@@ -537,16 +544,22 @@ class _Builder:
 		if len(found) > 1:
 			self.problem(f"UOM {uom} is linked to more than one code in {code_list}: {', '.join(found)}.")
 			return None
-		code = found[0] if found else get_default_code(code_list)
+		# The Common Code typed on the UOM form is used when the code list has no link for it:
+		# it is where most people set it, and the code is still checked against PINT-AE below.
+		code = (
+			found[0]
+			if found
+			else self._uom_common_code(uom) or get_default_code(code_list)
+		)
 		if not code:
 			self.problem(
-				f"{label}: UOM {uom} has no code in Code List {code_list}. Open the matching Common Code "
-				f"(for example H87 piece or C62 one) and add UOM {uom} under Applies To."
+				f"{label}: UOM {uom} has no unit code. Open UOM {uom} and set its Common Code "
+				f"(for example LTR litre, KGM kilogram, H87 piece)."
 			)
 			return None
 		if code not in code_lists.codes(code_lists.UNITS):
 			self.problem(
-				f"{label}: UOM {uom} stands for {code} in {code_list}, but PINT-AE has no unit code {code}."
+				f"{label}: UOM {uom} has unit code {code}, but PINT-AE has no unit code {code}."
 			)
 			return None
 		return code
