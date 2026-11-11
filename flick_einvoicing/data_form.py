@@ -2,7 +2,6 @@
 data. The questions live in the Customer Data Form single; each link is a Customer Data Request
 with its own random key, closed once the customer submits."""
 
-import re
 import secrets
 
 import frappe
@@ -11,6 +10,7 @@ from frappe.rate_limiter import rate_limit
 from frappe.utils import add_days, get_url, getdate, now_datetime, validate_email_address
 
 from flick_einvoicing.einvoice import codes
+from flick_einvoicing.party_ids import normalize_peppol_id, normalize_trn
 
 FORM = "Customer Data Form"
 REQUEST = "Customer Data Request"
@@ -180,6 +180,12 @@ def _clean(question, raw) -> str:
 			frappe.throw(_("{0}: please pick one of the choices.").format(label))
 	elif question.fieldtype == "Yes/No" and value not in ("Yes", "No"):
 		frappe.throw(_("{0}: please answer Yes or No.").format(label))
+	if question.customer_field == "tax_id":
+		value = normalize_trn(value) or value.strip().upper()
+	elif question.customer_field == "einvoice_peppol_id":
+		value = normalize_peppol_id(value).split(":", 1)[1]
+	elif question.customer_field == "einvoice_go_live_date" and getdate(value) < getdate():
+		frappe.throw(_("{0}: the date cannot be in the past.").format(label))
 	return value
 
 
@@ -299,14 +305,12 @@ def _apply_address(customer, values: dict) -> bool:
 
 
 def _customer_value(fieldname: str, value: str) -> str | None:
-	if fieldname == "tax_id" and value.strip().upper() in ("NA", "N/A"):
-		return None
+	if fieldname == "tax_id":
+		return normalize_trn(value)
 	if fieldname == "einvoice_free_zone":
 		return 1 if value == "Yes" else 0 if value == "No" else None
 	if fieldname == "einvoice_peppol_id":
-		digits = re.sub(r"\D", "", value)
-		if ":" not in value and len(digits) == 10:
-			return f"0235:{digits}"
+		return normalize_peppol_id(value)
 	return value
 
 

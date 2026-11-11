@@ -67,6 +67,8 @@ doc_events = {
 	},
 	# Received invoices that came in before their sender was a supplier here.
 	"Supplier": {"on_update": "flick_einvoicing.einvoice.inbound.match_waiting"},
+	# TRN and Peppol ID format, checked when typed.
+	"Customer": {"validate": "flick_einvoicing.party_ids.validate_customer"},
 	# Support, while turned on: this app's errors go to the hub.
 	"Error Log": {"after_insert": "flick_einvoicing.support.on_error_log"},
 }
