@@ -16,6 +16,20 @@ from flick_einvoicing.einvoice.service import (
 
 def before_insert(doc, method=None):
 	default_export(doc)
+	default_free_zone(doc)
+
+
+def default_free_zone(doc):
+	"""Tick Free Trade Zone Supply on a new invoice to a customer marked as a free zone company,
+	with the customer's TRN as the beneficiary. Never unticks; a person's choice stands."""
+	if doc.doctype not in ("Sales Invoice", "POS Invoice") or doc.get("einvoice_is_ftz") or not doc.get("customer"):
+		return
+	free_zone, tax_id = frappe.get_cached_value("Customer", doc.customer, ["einvoice_free_zone", "tax_id"]) or (0, None)
+	if not free_zone:
+		return
+	doc.einvoice_is_ftz = 1
+	if not doc.get("einvoice_fz_beneficiary_id") and tax_id and tax_id.strip().upper() not in ("NA", "N/A"):
+		doc.einvoice_fz_beneficiary_id = tax_id.strip()
 
 
 def default_export(doc):

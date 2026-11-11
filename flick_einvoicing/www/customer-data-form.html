@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>{{ form_title }}</title>
+<style>
+:root { --bg:#f5f7fa; --card:#fff; --fg:#16181d; --muted:#5d6370; --line:#dfe2e8; --accent:#1f4e79; --err:#b42318; --ok:#067647; }
+@media (prefers-color-scheme: dark) { :root { --bg:#111317; --card:#161920; --fg:#e8eaee; --muted:#a3a9b5; --line:#2a2e36; --accent:#7fb0e0; --err:#f97066; --ok:#47cd89; } }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; }
+main { max-width:720px; margin:32px auto; padding:0 16px; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:24px; margin-bottom:16px; }
+h1 { font-size:22px; margin:0 0 8px; border-top:6px solid var(--accent); padding-top:16px; }
+.muted { color:var(--muted); }
+.q { margin-bottom:0; }
+.q label.t { display:block; font-weight:600; margin-bottom:4px; }
+.q .req { color:var(--err); }
+.q small { display:block; color:var(--muted); margin-bottom:8px; }
+input[type=text], input[type=email], input[type=date], textarea, select { width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--fg); font:inherit; }
+textarea { min-height:80px; }
+.opt { display:flex; gap:8px; align-items:flex-start; padding:4px 0; }
+.opt input { margin-top:4px; }
+button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:11px 22px; font:inherit; font-weight:600; cursor:pointer; }
+button:disabled { opacity:.6; cursor:wait; }
+.msg { padding:12px 14px; border-radius:8px; margin-top:12px; display:none; }
+.msg.err { display:block; color:var(--err); border:1px solid var(--err); }
+.done { color:var(--ok); font-weight:600; }
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>{{ form_title }}</h1>
+    {% if company %}<div class="muted">{{ company }}</div>{% endif %}
+    {% if intro and not error %}<p>{{ intro | e | replace("\n", "<br>") }}</p>{% endif %}
+    {% if error %}<p class="muted">{{ error }}</p>{% else %}<p class="muted"><span style="color:var(--err)">*</span> Required</p>{% endif %}
+  </div>
+  {% if not error %}
+  <form id="f" novalidate>
+    {% for q in questions %}
+    <div class="card q">
+      <label class="t" for="q_{{ q.fieldname }}">{{ loop.index }}. {{ q.label }}{% if q.reqd %} <span class="req">*</span>{% endif %}</label>
+      {% if q.description %}<small>{{ q.description }}</small>{% endif %}
+      {% if q.fieldtype == "Select" or q.fieldtype == "Yes/No" %}
+        {% for c in (q.choices if q.fieldtype == "Select" else ["Yes", "No"]) %}
+        <label class="opt"><input type="radio" name="{{ q.fieldname }}" value="{{ c }}" {% if q.reqd %}required{% endif %}> <span>{{ c }}</span></label>
+        {% endfor %}
+      {% elif q.fieldtype == "Attachment" %}
+        <input id="q_{{ q.fieldname }}" name="{{ q.fieldname }}" type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" {% if q.reqd %}required{% endif %}>
+      {% elif q.fieldtype == "Long Text" %}
+        <textarea id="q_{{ q.fieldname }}" name="{{ q.fieldname }}" {% if q.reqd %}required{% endif %}></textarea>
+      {% else %}
+        <input id="q_{{ q.fieldname }}" name="{{ q.fieldname }}" type="{{ 'email' if q.fieldtype == 'Email' else 'date' if q.fieldtype == 'Date' else 'text' }}" maxlength="2000" {% if q.reqd %}required{% endif %}>
+      {% endif %}
+    </div>
+    {% endfor %}
+    <div class="card">
+      <button type="submit" id="go">Submit</button>
+      <div id="msg" class="msg"></div>
+    </div>
+  </form>
+  {% endif %}
+</main>
+{% if not error %}
+<script>
+const readFile = (file) => new Promise((ok, fail) => {
+  const r = new FileReader();
+  r.onload = () => ok(r.result);
+  r.onerror = fail;
+  r.readAsDataURL(file);
+});
+const form = document.getElementById("f"), btn = document.getElementById("go"), msg = document.getElementById("msg");
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  msg.className = "msg";
+  const answers = {};
+  for (const [k, v] of new FormData(form).entries()) {
+    if (v instanceof File) {
+      if (!v.size) continue;
+      if (v.size > 5 * 1024 * 1024) {
+        msg.textContent = `${v.name} is larger than 5 MB.`;
+        msg.className = "msg err";
+        return;
+      }
+      answers[k] = { name: v.name, data: await readFile(v) };
+    } else answers[k] = v;
+  }
+  const missing = [...form.querySelectorAll("[required]")].find((el) => !answers[el.name]);
+  if (missing) {
+    msg.textContent = "Please answer all required questions.";
+    msg.className = "msg err";
+    missing.focus();
+    return;
+  }
+  btn.disabled = true;
+  try {
+    const r = await fetch("/api/method/flick_einvoicing.data_form.submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json", "X-Frappe-CSRF-Token": {{ csrf_token | tojson }} },
+      body: JSON.stringify({ key: {{ key | tojson }}, answers }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      let text = "Could not submit. Please try again.";
+      try { text = JSON.parse(JSON.parse(data._server_messages)[0]).message; } catch (_) { if (data.exception) text = data.exception.split(": ").slice(1).join(": ") || text; }
+      throw new Error(text.replace(/<[^>]+>/g, ""));
+    }
+    form.innerHTML = "";
+    const done = document.createElement("div");
+    done.className = "card done";
+    done.textContent = data.message;
+    form.appendChild(done);
+    window.scrollTo(0, 0);
+  } catch (err) {
+    msg.textContent = err.message;
+    msg.className = "msg err";
+    btn.disabled = false;
+  }
+});
+</script>
+{% endif %}
+</body>
+</html>

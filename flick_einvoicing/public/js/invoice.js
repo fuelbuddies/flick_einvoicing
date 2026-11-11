@@ -199,6 +199,21 @@ if (!flick_einvoicing.invoice_form_registered) {
 		});
 	};
 	frappe.ui.form.on("Sales Invoice", { customer: default_export, customer_address: default_export, shipping_address_name: default_export });
+	// A customer marked as a free zone company: tick Free Trade Zone Supply with its TRN as the
+	// beneficiary, as the server does on insert. Never unticks.
+	const default_free_zone = (frm) => {
+		const { customer } = frm.doc;
+		if (frm.doc.docstatus !== 0 || frm.doc.einvoice_is_ftz || !customer) return;
+		frappe.db.get_value("Customer", customer, ["einvoice_free_zone", "tax_id"]).then(({ message: c }) => {
+			if (!c || !c.einvoice_free_zone || frm.doc.customer !== customer) return;
+			frm.set_value("einvoice_is_ftz", 1);
+			const trn = (c.tax_id || "").trim();
+			if (!frm.doc.einvoice_fz_beneficiary_id && trn && !["NA", "N/A"].includes(trn.toUpperCase())) frm.set_value("einvoice_fz_beneficiary_id", trn);
+			frappe.show_alert({ message: __("Free Trade Zone Supply ticked: {0} is a free zone company.", [customer]), indicator: "blue" });
+		});
+	};
+	frappe.ui.form.on("Sales Invoice", { customer: default_free_zone });
+	frappe.ui.form.on("POS Invoice", { customer: default_free_zone });
 	frappe.ui.form.on("POS Invoice", handlers);
 	frappe.ui.form.on("Purchase Invoice", handlers);
 

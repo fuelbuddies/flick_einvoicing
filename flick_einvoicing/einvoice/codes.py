@@ -8,6 +8,15 @@ rejected, or worse accepted, by the FTA.
 Select fields store "<code> - <label>"; `code_of()` turns either form back into the code.
 """
 
+# UAE e-invoicing rollout phases, as the customer data form and the Customer field offer them.
+EINVOICE_PHASES = "\n".join(
+	(
+		"Phase 1 – Revenue above AED 50 million (January 2027)",
+		"Phase 2 – Revenue below AED 50 million (July 2027)",
+		"Phase 3 – Government entities (October 2027)",
+	)
+)
+
 EMIRATE_CODES = {
 	"Abu Dhabi": "AUH",
 	"Dubai": "DXB",

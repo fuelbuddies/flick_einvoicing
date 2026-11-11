@@ -1,0 +1,66 @@
+{
+ "actions": [],
+ "creation": "2026-11-11 10:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "label",
+  "value",
+  "attachment",
+  "customer_field",
+  "fieldname"
+ ],
+ "fields": [
+  {
+   "columns": 4,
+   "fieldname": "label",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Question",
+   "read_only": 1
+  },
+  {
+   "columns": 4,
+   "fieldname": "value",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Answer",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "attachment",
+   "fieldtype": "Attach",
+   "in_list_view": 1,
+   "label": "File",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "customer_field",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Customer Field",
+   "read_only": 1
+  },
+  {
+   "fieldname": "fieldname",
+   "fieldtype": "Data",
+   "label": "Key",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-11 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Flick E-Invoicing",
+ "name": "Customer Data Response",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "istable": 1,
+ "editable_grid": 0
+}

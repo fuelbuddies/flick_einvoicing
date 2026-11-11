@@ -1,0 +1,98 @@
+{
+ "actions": [],
+ "creation": "2026-11-11 10:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "label",
+  "fieldtype",
+  "reqd",
+  "enabled",
+  "customer_field",
+  "column_break_1",
+  "options",
+  "description",
+  "fieldname"
+ ],
+ "fields": [
+  {
+   "columns": 3,
+   "fieldname": "label",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Question",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "fieldtype",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Answer Type",
+   "default": "Text",
+   "options": "Text\nLong Text\nEmail\nDate\nSelect\nYes/No\nAttachment",
+   "reqd": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "reqd",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Mandatory"
+  },
+  {
+   "columns": 1,
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  },
+  {
+   "columns": 2,
+   "fieldname": "customer_field",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Updates Customer Field",
+   "options": "\ncustomer_name\ntax_id\neinvoice_peppol_id\neinvoice_trade_licence\neinvoice_trade_licence_authority\neinvoice_trade_name\neinvoice_free_zone\neinvoice_phase\neinvoice_go_live_date\neinvoice_contact_email\naddress.address_line1\naddress.address_line2\naddress.city\naddress.emirate",
+   "description": "Filled in on the customer (address.* on its billing address) when you click Apply to Customer on the response."
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "options",
+   "fieldtype": "Small Text",
+   "label": "Choices",
+   "depends_on": "eval:doc.fieldtype=='Select'",
+   "mandatory_depends_on": "eval:doc.fieldtype=='Select'",
+   "description": "One per line."
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Help Text"
+  },
+  {
+   "fieldname": "fieldname",
+   "fieldtype": "Data",
+   "label": "Key",
+   "read_only": 1,
+   "description": "Set from the question when saved; answers are stored under it."
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-11 13:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Flick E-Invoicing",
+ "name": "Customer Data Form Field",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "istable": 1,
+ "editable_grid": 1
+}

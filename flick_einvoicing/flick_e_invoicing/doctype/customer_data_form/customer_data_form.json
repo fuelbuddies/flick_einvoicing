@@ -1,0 +1,85 @@
+{
+ "actions": [],
+ "creation": "2026-11-11 10:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "link_validity_days",
+  "intro",
+  "thank_you",
+  "fields_section",
+  "questions"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "label": "Form Title",
+   "default": "UAE E-Invoicing \u2013 Customer Master Data",
+   "reqd": 1
+  },
+  {
+   "fieldname": "link_validity_days",
+   "fieldtype": "Int",
+   "label": "Link Valid For (Days)",
+   "default": "30",
+   "description": "0 keeps links open until used."
+  },
+  {
+   "fieldname": "intro",
+   "fieldtype": "Small Text",
+   "label": "Introduction",
+   "description": "Shown above the questions."
+  },
+  {
+   "fieldname": "thank_you",
+   "fieldtype": "Small Text",
+   "label": "Thank-you Message",
+   "default": "Thank you. Your details have been received."
+  },
+  {
+   "fieldname": "fields_section",
+   "fieldtype": "Section Break",
+   "label": "Questions"
+  },
+  {
+   "fieldname": "questions",
+   "fieldtype": "Table",
+   "label": "Questions",
+   "options": "Customer Data Form Field"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-11 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Flick E-Invoicing",
+ "name": "Customer Data Form",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "issingle": 1
+}

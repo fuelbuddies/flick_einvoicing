@@ -5,6 +5,7 @@ from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from frappe.utils.nestedset import get_root_of
 
 from flick_einvoicing.custom_fields import get_custom_fields
+from flick_einvoicing.data_form import ensure_default_form
 from flick_einvoicing.einvoice import code_lists
 
 UOM_CODE_LIST = "UN/ECE Recommendation 20"
@@ -21,6 +22,7 @@ def after_install():
 	ensure_uom_code_list()
 	ensure_dashboard()
 	ensure_placeholder_item()
+	ensure_default_form()
 
 
 def use_commercial_rounding_on_new_site():
@@ -63,6 +65,7 @@ def after_migrate():
 	ensure_uom_code_list()
 	ensure_dashboard()
 	ensure_placeholder_item()
+	ensure_default_form()
 
 
 def ensure_placeholder_item() -> str | None:
