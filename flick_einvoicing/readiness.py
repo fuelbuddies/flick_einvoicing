@@ -42,6 +42,12 @@ def data(party_type, filters):
 		):
 			requests.setdefault(r.customer, r)
 
+	emails = {}
+	if party_type == "Customer" and parties:
+		from flick_einvoicing.data_form import contact_emails
+
+		emails = contact_emails([p.name for p in parties])
+
 	rows = []
 	for p in parties:
 		missing = check(party_type, p)
@@ -67,6 +73,8 @@ def data(party_type, filters):
 				phase=(p.einvoice_phase or "").split(" –")[0],
 				go_live=p.einvoice_go_live_date,
 				contact_email=p.einvoice_contact_email,
+				send_to=emails.get(p.name, (None, None))[0],
+				send_to_source=emails.get(p.name, (None, None))[1],
 				form_status=req.status if req else "",
 				form_request=req.name if req else None,
 				form_date=(req.submitted_on or req.creation) if req else None,

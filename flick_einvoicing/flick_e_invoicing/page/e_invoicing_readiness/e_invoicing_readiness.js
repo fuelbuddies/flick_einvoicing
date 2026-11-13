@@ -86,7 +86,15 @@ class Readiness {
 			];
 			if (customer) {
 				cells.push(
-					`<td class="small">${esc(r.contact_email || "")}</td>`,
+					`<td class="small"><span class="flick-email" data-email="${esc(r.party)}" title="${__("Click to edit")}">${
+						r.contact_email ? esc(r.contact_email) : `<span class="text-muted">+ ${__("Add")}</span>`
+					}</span>${
+						!r.contact_email && r.send_to
+							? `<div class="text-muted small" title="${__("Used when no e-invoicing contact email is set")}">${esc(r.send_to)} · ${
+									r.send_to_source === "primary" ? __("primary contact") : __("contact")
+								}</div>`
+							: ""
+					}</td>`,
 					`<td>${r.form_request ? `<a href="/app/customer-data-request/${encodeURIComponent(r.form_request)}">${pill(__(r.form_status), form_color[r.form_status] || "gray")}</a>` : ""}
 						${r.sent_on ? `<div class="text-muted small">${__("Emailed {0}", [frappe.datetime.prettyDate(r.sent_on)])}${r.send_count > 1 ? ` ×${r.send_count}` : ""}</div>` : ""}</td>`,
 					`<td><button class="btn btn-xs btn-default" data-link="${esc(r.party)}">${__("Generate Link")}</button></td>`
@@ -126,6 +134,7 @@ class Readiness {
 			this.visible().forEach((r) => (e.currentTarget.checked ? this.selected.add(r.party) : this.selected.delete(r.party)));
 			this.render();
 		});
+		this.$body.on("click", "[data-email]", (e) => this.edit_email($(e.currentTarget), e.currentTarget.dataset.email));
 		this.$body.on("click", "[data-link]", (e) => {
 			const customer = e.currentTarget.dataset.link;
 			frappe.call({ method: "flick_einvoicing.data_form.create_request", args: { customer }, freeze: true }).then(({ message: r }) => {
@@ -138,6 +147,35 @@ class Readiness {
 				this.load();
 			});
 		});
+	}
+
+	// Click an email cell to edit it in place; Enter or leaving the field saves, Escape cancels.
+	edit_email($cell, customer, done) {
+		const row = this.rows.find((r) => r.party === customer) || {};
+		const $input = $(`<input type="email" class="form-control form-control-sm" placeholder="name@company.com">`)
+			.val(row.contact_email || "");
+		$cell.replaceWith($input);
+		$input.trigger("focus");
+		let finished = false;
+		const finish = (save) => {
+			if (finished) return;
+			finished = true;
+			const email = ($input.val() || "").trim();
+			if (!save || email === (row.contact_email || "")) return done ? done(false) : this.render();
+			frappe
+				.call({ method: "flick_einvoicing.data_form.set_contact_email", args: { customer, email } })
+				.then(({ message }) => {
+					row.contact_email = message;
+					frappe.show_alert({ message: __("Contact email saved for {0}", [customer]), indicator: "green" });
+					done ? done(true) : this.render();
+				})
+				.catch(() => (done ? done(false) : this.render()));
+		};
+		$input.on("keydown", (e) => {
+			if (e.key === "Enter") finish(true);
+			if (e.key === "Escape") finish(false);
+		});
+		$input.on("blur", () => finish(true));
 	}
 
 	open_email() {
@@ -208,10 +246,16 @@ class Readiness {
 			d.fields_dict.recipients.$wrapper.html(`
 				${p.no_email_account ? `<div class="alert alert-danger small">${__("No default outgoing Email Account is set up, so nothing can be sent yet.")} <a href="/app/email-account">${__("Email Accounts")}</a></div>` : ""}
 				<div class="small"><b>${__("Will be sent to {0}", [ok.length])}</b>
-				<ul class="flick-rcpt">${ok.map((r) => `<li>${esc(r.customer)} <span class="text-muted">&lt;${esc(r.email)}&gt;</span></li>`).join("")}</ul>
+				<ul class="flick-rcpt">${ok.map((r) => `<li>${esc(r.customer)} <span class="text-muted">&lt;${esc(r.email)}&gt;${r.source === "einvoice" ? "" : ` · ${r.source === "primary" ? __("primary contact") : __("contact")}`}</span></li>`).join("")}</ul>
 				${missing.length ? `<b class="text-danger">${__("Skipped, no email ({0})", [missing.length])}</b>
-				<ul class="flick-rcpt">${missing.map((r) => `<li>${esc(r.customer)}</li>`).join("")}</ul>
-				<div class="text-muted">${__("Set E-Invoicing Contact Email on the customer, or a primary contact.")}</div>` : ""}</div>`);
+				<ul class="flick-rcpt">${missing.map((r) => `<li>${esc(r.customer)} <a class="flick-add-email" data-email="${esc(r.customer)}">+ ${__("Add email")}</a></li>`).join("")}</ul>
+				<div class="text-muted">${__("Add an email here, or set a primary contact on the customer.")}</div>` : ""}</div>`);
+			d.fields_dict.recipients.$wrapper.find("[data-email]").on("click", (e) =>
+				this.edit_email($(e.currentTarget), e.currentTarget.dataset.email, (saved) => {
+					this.render();
+					this.preview(d, customers);
+				})
+			);
 			d.get_primary_btn().text(__("Confirm & Send ({0})", [ok.length])).prop("disabled", !ok.length || p.no_email_account);
 		});
 	}
@@ -226,6 +270,8 @@ class Readiness {
 			.flick-mail { border:1px solid var(--border-color); border-radius:8px; max-height:420px; overflow:auto; }
 			.flick-mail-subject { padding:10px 14px; border-bottom:1px solid var(--border-color); font-weight:600; }
 			.flick-mail-body { padding:14px; }
+			.flick-email { cursor:pointer; border-bottom:1px dashed var(--border-color); }
+			.flick-email:hover, .flick-add-email { color:var(--primary); cursor:pointer; }
 			.flick-rcpt { max-height:340px; overflow:auto; padding-left:18px; }
 		</style>`).appendTo("head");
 	}

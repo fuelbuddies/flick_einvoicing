@@ -363,13 +363,48 @@ def email_template() -> dict:
 	return {"subject": form.get("email_subject") or DEFAULT_SUBJECT, "body": form.get("email_body") or DEFAULT_BODY}
 
 
+def contact_emails(customers: list[str]) -> dict[str, tuple[str, str]]:
+	"""Each customer's email to send to and where it came from: the E-Invoicing Contact Email,
+	else the customer's primary contact (ERPNext's email_id), else any contact linked to it."""
+	if not customers:
+		return {}
+	out = {}
+	for c in frappe.get_all(
+		"Customer", filters={"name": ["in", customers]}, fields=["name", "einvoice_contact_email", "email_id"]
+	):
+		for value, source in ((c.einvoice_contact_email, "einvoice"), (c.email_id, "primary")):
+			if value and validate_email_address(value.strip()):
+				out[c.name] = (value.strip(), source)
+				break
+	rest = [c for c in customers if c not in out]
+	if rest:
+		Contact = frappe.qb.DocType("Contact")
+		Link = frappe.qb.DocType("Dynamic Link")
+		rows = (
+			frappe.qb.from_(Contact)
+			.join(Link)
+			.on(Link.parent == Contact.name)
+			.select(Link.link_name, Contact.email_id)
+			.where(
+				(Link.parenttype == "Contact")
+				& (Link.link_doctype == "Customer")
+				& (Link.link_name.isin(rest))
+				& (Contact.email_id.isnotnull())
+				& (Contact.email_id != "")
+			)
+			.orderby(Contact.is_primary_contact, order=frappe.qb.desc)
+			.orderby(Contact.creation)
+		).run(as_dict=True)
+		for r in rows:
+			if r.link_name not in out and validate_email_address(r.email_id.strip()):
+				out[r.link_name] = (r.email_id.strip(), "contact")
+	return out
+
+
 def recipient(customer: str) -> str | None:
-	"""Where the form goes: the e-invoicing contact email, else the customer's primary contact."""
-	email, primary = frappe.db.get_value("Customer", customer, ["einvoice_contact_email", "email_id"]) or (None, None)
-	for value in (email, primary):
-		if value and validate_email_address(value.strip()):
-			return value.strip()
-	return None
+	"""Where the form goes for one customer; see contact_emails."""
+	found = contact_emails([customer]).get(customer)
+	return found[0] if found else None
 
 
 def _pending_request(customer: str) -> dict:
@@ -428,7 +463,11 @@ def preview_email(customers: list | str, subject: str, body: str) -> dict:
 	"""What the email will look like for the first customer, and who it would go to. Makes no link."""
 	frappe.has_permission(REQUEST, "create", throw=True)
 	customers = frappe.parse_json(customers) if isinstance(customers, str) else customers
-	recipients = [{"customer": c, "email": recipient(c)} for c in customers]
+	emails = contact_emails(customers)
+	recipients = [
+		{"customer": c, "email": emails.get(c, (None, None))[0], "source": emails.get(c, (None, None))[1]}
+		for c in customers
+	]
 	first = customers[0] if customers else None
 	if not first:
 		return {"recipients": [], "subject": "", "body": ""}
@@ -460,9 +499,10 @@ def send_bulk(customers: list | str, subject: str, body: str, save_template: int
 		form.email_subject, form.email_body = subject, body
 		form.save()
 	to_send, skipped = [], []
+	emails = contact_emails(customers)
 	for c in customers:
 		frappe.has_permission("Customer", "read", c, throw=True)
-		(to_send if recipient(c) else skipped).append(c)
+		(to_send if c in emails else skipped).append(c)
 	if to_send:
 		frappe.enqueue(
 			"flick_einvoicing.data_form.send_emails",
@@ -514,3 +554,16 @@ def send_emails(customers: list, subject: str, body: str, user: str):
 		{"message": _("Data form emails queued: {0}. Failed: {1}.").format(sent, failed), "title": _("Data Collection")},
 		user=user,
 	)
+
+
+@frappe.whitelist()
+def set_contact_email(customer: str, email: str | None = None) -> str:
+	"""Set the customer's E-Invoicing Contact Email from the Readiness page."""
+	email = (email or "").strip()
+	if email and not validate_email_address(email):
+		frappe.throw(_("{0} is not a valid email address.").format(frappe.bold(email)))
+	doc = frappe.get_doc("Customer", customer)
+	doc.check_permission("write")
+	doc.einvoice_contact_email = email
+	doc.save()
+	return email
