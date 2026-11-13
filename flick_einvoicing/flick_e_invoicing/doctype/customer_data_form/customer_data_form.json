@@ -62,7 +62,7 @@
    "fieldname": "email_subject",
    "fieldtype": "Data",
    "label": "Email Subject",
-   "description": "Jinja: {{ customer_name }}, {{ company }}, {{ link }}, {{ expires_on }}."
+   "description": "Jinja: {{ customer_name }}, {{ company }}, {{ button }}, {{ link }}, {{ expires_on }}."
   },
   {
    "fieldname": "email_body",

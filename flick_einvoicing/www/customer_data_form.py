@@ -1,6 +1,6 @@
 import frappe
 
-from flick_einvoicing.data_form import active_questions, get_open_request
+from flick_einvoicing.data_form import PREVIEW_KEY, active_questions, get_open_request
 
 no_cache = 1
 
@@ -9,7 +9,8 @@ def get_context(context):
 	"""The one-time customer data form, opened from a link with ?key=."""
 	context.no_cache = 1
 	key = frappe.form_dict.get("key")
-	doc, error = get_open_request(key)
+	context.preview = key == PREVIEW_KEY
+	doc, error = (None, None) if context.preview else get_open_request(key)
 	context.error = error
 	context.key = key if doc else ""
 	form = frappe.get_single("Customer Data Form")

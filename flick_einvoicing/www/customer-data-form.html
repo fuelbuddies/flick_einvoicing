@@ -35,6 +35,7 @@ button:disabled { opacity:.6; cursor:wait; }
     <h1>{{ form_title }}</h1>
     {% if company %}<div class="muted">{{ company }}</div>{% endif %}
     {% if intro and not error %}<p>{{ intro | e | replace("\n", "<br>") }}</p>{% endif %}
+    {% if preview %}<p class="msg err" style="display:block">Preview only: this is how the form looks to your customers. Answers here are not saved.</p>{% endif %}
     {% if error %}<p class="muted">{{ error }}</p>{% else %}<p class="muted"><span style="color:var(--err)">*</span> Required</p>{% endif %}
   </div>
   {% if not error %}
@@ -57,7 +58,7 @@ button:disabled { opacity:.6; cursor:wait; }
     </div>
     {% endfor %}
     <div class="card">
-      <button type="submit" id="go">Submit</button>
+      <button type="submit" id="go" {% if preview %}disabled title="Preview only"{% endif %}>Submit</button>
       <div id="msg" class="msg"></div>
     </div>
   </form>
@@ -74,6 +75,7 @@ const readFile = (file) => new Promise((ok, fail) => {
 const form = document.getElementById("f"), btn = document.getElementById("go"), msg = document.getElementById("msg");
 form.addEventListener("submit", async (e) => {
   e.preventDefault();
+  if ({{ (preview or False) | tojson }}) return;
   msg.className = "msg";
   const answers = {};
   for (const [k, v] of new FormData(form).entries()) {

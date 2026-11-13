@@ -16,6 +16,8 @@ from flick_einvoicing.party_ids import normalize_peppol_id, normalize_trn
 FORM = "Customer Data Form"
 REQUEST = "Customer Data Request"
 ROUTE = "customer-data-form"
+# Opens the form read-only: what test emails and previews link to, so no real link is spent.
+PREVIEW_KEY = "preview"
 
 PHASES = codes.EINVOICE_PHASES
 EMIRATES = "AUH\nDXB\nSHJ\nUAQ\nFUJ\nAJM\nRAK"
@@ -349,12 +351,16 @@ def apply_to_customer(name: str) -> list[str]:
 
 DEFAULT_SUBJECT = "UAE e-invoicing: please confirm your company details – {{ company }}"
 DEFAULT_BODY = """<p>Dear {{ customer_name }},</p>
-<p>UAE e-invoicing becomes mandatory from 2027. To keep issuing invoices to you without interruption,
-we need to confirm the details that will appear on your e-invoices (legal name, TRN, e-invoicing TIN,
-address and trade licence).</p>
-<p>Please fill in this short form. It takes about five minutes:</p>
-<p><a href="{{ link }}">{{ link }}</a></p>
-<p>The link is personal to your company and works once.{% if expires_on %} It is valid until {{ expires_on }}.{% endif %}</p>
+<p>UAE e-invoicing becomes mandatory in 2027. So that our invoices keep reaching you without interruption, please confirm the details that will appear on your e-invoices:</p>
+<ul>
+<li>Legal name and VAT registration number (TRN)</li>
+<li>E-invoicing TIN (your Peppol ID)</li>
+<li>Registered address and emirate</li>
+<li>Trade licence number and issuing authority</li>
+</ul>
+<p>It takes about five minutes:</p>
+<p>{{ button }}</p>
+<p><small>This link is for {{ customer_name }} only and can be used once.{% if expires_on %} It is valid until {{ expires_on }}.{% endif %} If the button does not work, copy this address into your browser: {{ link }}</small></p>
 <p>Thank you,<br>{{ company }}</p>"""
 
 
@@ -449,7 +455,31 @@ def _render(subject: str, body: str, customer: str, link: str, expires_on) -> tu
 		"link": link,
 		"expires_on": format_datetime(expires_on, "d MMMM yyyy") if expires_on else "",
 	}
-	return frappe.render_template(subject, ctx), frappe.render_template(body, ctx)
+	ctx["button"] = (
+		f'<a href="{link}" style="display:inline-block;padding:12px 26px;background:#1f4e79;color:#ffffff;'
+		'text-decoration:none;border-radius:6px;font-weight:600;font-size:15px">Fill in the form</a>'
+	)
+	return frappe.render_template(subject, ctx), _layout(frappe.render_template(body, ctx))
+
+
+# Inline styles, since mail clients ignore stylesheets and drop default paragraph spacing. Added
+# when sending rather than kept in the template, because the rich-text editor strips them.
+_TAG_STYLES = {
+	"p": "margin:0 0 14px;line-height:1.6",
+	"ul": "margin:0 0 14px;padding-left:22px;line-height:1.6",
+	"ol": "margin:0 0 14px;padding-left:22px;line-height:1.6",
+	"li": "margin:0 0 4px",
+	"small": "font-size:12px;color:#6b7280",
+}
+
+
+def _layout(html: str) -> str:
+	for tag, style in _TAG_STYLES.items():
+		html = re.sub(rf"<{tag}(?=[\s>])(?![^>]*style=)", f'<{tag} style="{style}"', html)
+	return (
+		'<div style="max-width:600px;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;'
+		f'font-size:14px;color:#1f2937">{html}</div>'
+	)
 
 
 @frappe.whitelist()
@@ -471,7 +501,7 @@ def preview_email(customers: list | str, subject: str, body: str) -> dict:
 	first = customers[0] if customers else None
 	if not first:
 		return {"recipients": [], "subject": "", "body": ""}
-	sample = form_url("example-link-made-when-sent")
+	sample = form_url(PREVIEW_KEY)
 	days = frappe.get_single(FORM).link_validity_days or 0
 	_check_template(subject, body, first)
 	rendered = _render(subject, body, first, sample, add_days(now_datetime(), days) if days > 0 else None)
@@ -572,7 +602,7 @@ def set_contact_email(customer: str, email: str | None = None) -> str:
 @frappe.whitelist()
 def send_test_email(email: str, customer: str, subject: str, body: str) -> str:
 	"""The email as `customer` would get it, sent to `email` instead. Makes no link and touches no
-	customer or request: the link in it is a sample that does not open a form."""
+	customer or request: its link opens the form read-only (PREVIEW_KEY)."""
 	frappe.has_permission(REQUEST, "create", throw=True)
 	email = (email or "").strip()
 	if not validate_email_address(email):
@@ -582,7 +612,7 @@ def send_test_email(email: str, customer: str, subject: str, body: str) -> str:
 	_check_template(subject, body, customer)
 	days = frappe.get_single(FORM).link_validity_days or 0
 	subj, html = _render(
-		subject, body, customer, form_url("test-link-not-valid"), add_days(now_datetime(), days) if days > 0 else None
+		subject, body, customer, form_url(PREVIEW_KEY), add_days(now_datetime(), days) if days > 0 else None
 	)
 	frappe.sendmail(recipients=[email], subject=f"[TEST] {subj}", message=html, now=True)
 	if frappe.are_emails_muted():

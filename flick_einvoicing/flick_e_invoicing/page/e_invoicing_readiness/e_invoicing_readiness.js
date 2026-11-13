@@ -191,7 +191,7 @@ class Readiness {
 				fields: [
 					{ fieldtype: "Data", fieldname: "subject", label: __("Subject"), reqd: 1, default: t.subject },
 					{ fieldtype: "Text Editor", fieldname: "body", label: __("Body"), reqd: 1, default: t.body,
-						description: __("Placeholders: {0}", ["{{ customer_name }}, {{ company }}, {{ link }}, {{ expires_on }}"]) },
+						description: __("Placeholders: {0}", ["{{ customer_name }}, {{ company }}, {{ button }}, {{ link }}, {{ expires_on }}"]) },
 					{ fieldtype: "Check", fieldname: "save_template", label: __("Save as default template"), default: 1 },
 					{ fieldtype: "Section Break", label: __("Preview") },
 					{ fieldtype: "HTML", fieldname: "preview" },
