@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Techountant and contributors
 # For license information, please see license.txt
 
-"""Which customers and suppliers are ready for e-invoicing, what each is missing, and (for
+"""E-Invoicing Readiness page: which customers and suppliers are ready for e-invoicing, what each is missing, and (for
 customers) where their data collection form stands."""
 
 import re
@@ -15,43 +15,8 @@ PEPPOL_ID = re.compile(r"^0235:\d{10}$")
 TRN = re.compile(r"^\d{15}$")
 
 
-def execute(filters=None):
-	filters = frappe._dict(filters or {})
-	party_type = filters.party_type if filters.party_type in ("Customer", "Supplier") else "Customer"
-	return columns(party_type), data(party_type, filters)
-
-
-def columns(party_type):
-	cols = [
-		{"fieldname": "party", "label": _(party_type), "fieldtype": "Link", "options": party_type, "width": 180},
-		{"fieldname": "party_name", "label": _("Name"), "fieldtype": "Data", "width": 200},
-		{"fieldname": "status", "label": _("Status"), "fieldtype": "Data", "width": 100},
-		{"fieldname": "missing", "label": _("Missing / To Check"), "fieldtype": "Data", "width": 260},
-	]
-	if party_type == "Customer":
-		cols.append({"fieldname": "routing", "label": _("Routing"), "fieldtype": "Data", "width": 140})
-	else:
-		cols.append({"fieldname": "self_billing", "label": _("Self-Billing"), "fieldtype": "Check", "width": 90})
-	cols += [
-		{"fieldname": "peppol_id", "label": _("Peppol ID"), "fieldtype": "Data", "width": 150},
-		{"fieldname": "tax_id", "label": _("TRN"), "fieldtype": "Data", "width": 140},
-		{"fieldname": "trade_licence", "label": _("Trade Licence"), "fieldtype": "Data", "width": 120},
-	]
-	if party_type == "Customer":
-		cols += [
-			{"fieldname": "free_zone", "label": _("Free Zone"), "fieldtype": "Check", "width": 80},
-			{"fieldname": "phase", "label": _("Phase"), "fieldtype": "Data", "width": 90},
-			{"fieldname": "go_live", "label": _("Go-Live"), "fieldtype": "Date", "width": 100},
-			{"fieldname": "contact_email", "label": _("Contact Email"), "fieldtype": "Data", "width": 170},
-			{"fieldname": "form_status", "label": _("Data Form"), "fieldtype": "Data", "width": 100},
-			{"fieldname": "form_request", "label": _("Form Request"), "fieldtype": "Link", "options": "Customer Data Request", "width": 110},
-			{"fieldname": "form_date", "label": _("Form Date"), "fieldtype": "Datetime", "width": 150},
-			{"fieldname": "action", "label": _("Action"), "fieldtype": "Data", "width": 120},
-		]
-	return cols
-
-
 def data(party_type, filters):
+	filters = frappe._dict(filters or {})
 	fields = ["name", "tax_id", "einvoice_peppol_id", "einvoice_trade_licence", "einvoice_trade_licence_authority"]
 	if party_type == "Customer":
 		fields += ["customer_name as party_name", "einvoice_routing", "einvoice_party_identifier",
@@ -72,7 +37,7 @@ def data(party_type, filters):
 		for r in frappe.get_all(
 			"Customer Data Request",
 			filters={"customer": ["in", [p.name for p in parties]]},
-			fields=["name", "customer", "status", "creation", "submitted_on"],
+			fields=["name", "customer", "status", "creation", "submitted_on", "sent_on", "send_count"],
 			order_by="creation desc",
 		):
 			requests.setdefault(r.customer, r)
@@ -105,7 +70,8 @@ def data(party_type, filters):
 				form_status=req.status if req else "",
 				form_request=req.name if req else None,
 				form_date=(req.submitted_on or req.creation) if req else None,
-				action="",
+				sent_on=req.sent_on if req else None,
+				send_count=req.send_count if req else 0,
 			)
 		else:
 			row["self_billing"] = p.einvoice_self_billing
@@ -131,3 +97,10 @@ def check(party_type, p) -> list[str]:
 	if p.einvoice_trade_licence and not p.einvoice_trade_licence_authority:
 		missing.append(_("Licensing Authority"))
 	return missing
+
+
+@frappe.whitelist()
+def get_rows(party_type: str = "Customer", filters: dict | str | None = None) -> list[dict]:
+	party_type = party_type if party_type in ("Customer", "Supplier") else "Customer"
+	frappe.has_permission(party_type, "read", throw=True)
+	return data(party_type, frappe.parse_json(filters) if isinstance(filters, str) else filters)

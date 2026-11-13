@@ -9,7 +9,10 @@
   "intro",
   "thank_you",
   "fields_section",
-  "questions"
+  "questions",
+  "email_section",
+  "email_subject",
+  "email_body"
  ],
  "fields": [
   {
@@ -48,11 +51,28 @@
    "fieldtype": "Table",
    "label": "Questions",
    "options": "Customer Data Form Field"
+  },
+  {
+   "fieldname": "email_section",
+   "fieldtype": "Section Break",
+   "label": "Email",
+   "collapsible": 1
+  },
+  {
+   "fieldname": "email_subject",
+   "fieldtype": "Data",
+   "label": "Email Subject",
+   "description": "Jinja: {{ customer_name }}, {{ company }}, {{ link }}, {{ expires_on }}."
+  },
+  {
+   "fieldname": "email_body",
+   "fieldtype": "Text Editor",
+   "label": "Email Body"
   }
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-11-11 10:00:00.000000",
+ "modified": "2026-11-13 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Flick E-Invoicing",
  "name": "Customer Data Form",

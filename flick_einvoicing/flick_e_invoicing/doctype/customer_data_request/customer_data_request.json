@@ -11,6 +11,9 @@
   "expires_on",
   "submitted_on",
   "form_url",
+  "sent_on",
+  "sent_to",
+  "send_count",
   "key",
   "responses_section",
   "responses"
@@ -66,6 +69,28 @@
    "read_only": 1
   },
   {
+   "fieldname": "sent_on",
+   "fieldtype": "Datetime",
+   "label": "Last Emailed On",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "sent_to",
+   "fieldtype": "Data",
+   "label": "Emailed To",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "send_count",
+   "fieldtype": "Int",
+   "label": "Times Emailed",
+   "read_only": 1,
+   "no_copy": 1,
+   "default": "0"
+  },
+  {
    "fieldname": "key",
    "fieldtype": "Data",
    "label": "Key",
@@ -89,7 +114,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-11-11 10:00:00.000000",
+ "modified": "2026-11-13 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Flick E-Invoicing",
  "name": "Customer Data Request",

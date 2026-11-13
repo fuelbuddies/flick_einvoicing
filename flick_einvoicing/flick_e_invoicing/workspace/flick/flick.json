@@ -1,6 +1,6 @@
 {
  "charts": [],
- "content": "[{\"id\": \"flick-dashboard\", \"type\": \"custom_block\", \"data\": {\"custom_block_name\": \"Flick Dashboard\", \"col\": 12}}, {\"id\": \"flick-spacer\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"flick-sc-0\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Submissions\", \"col\": 3}}, {\"id\": \"flick-sc-1\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"E-Invoice Status\", \"col\": 3}}, {\"id\": \"flick-sc-2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Received\", \"col\": 3}}, {\"id\": \"flicklog\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Log\", \"col\": 3}}, {\"id\": \"flick-sc-3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Settings\", \"col\": 3}}, {\"id\": \"flick-sc-4\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Help\", \"col\": 3}}, {\"id\": \"flickdash\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Flick Dashboard\", \"col\": 3}}, {\"id\": \"flickdevdocs\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Flick Developer Docs\", \"col\": 3}}, {\"id\": \"flick-sc-5\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Raise Ticket\", \"col\": 3}}, {\"id\": \"flick-sc-6\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"My Tickets\", \"col\": 3}}, {\"id\": \"flicksupset\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Support Settings\", \"col\": 3}}]",
+ "content": "[{\"id\": \"flick-dashboard\", \"type\": \"custom_block\", \"data\": {\"custom_block_name\": \"Flick Dashboard\", \"col\": 12}}, {\"id\": \"flick-spacer\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"flick-sc-0\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Submissions\", \"col\": 3}}, {\"id\": \"flick-sc-1\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"E-Invoice Status\", \"col\": 3}}, {\"id\": \"flkready01\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Readiness\", \"col\": 3}}, {\"id\": \"flick-sc-2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Received\", \"col\": 3}}, {\"id\": \"flicklog\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Log\", \"col\": 3}}, {\"id\": \"flick-sc-3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Settings\", \"col\": 3}}, {\"id\": \"flick-sc-4\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Help\", \"col\": 3}}, {\"id\": \"flickdash\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Flick Dashboard\", \"col\": 3}}, {\"id\": \"flickdevdocs\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Flick Developer Docs\", \"col\": 3}}, {\"id\": \"flick-sc-5\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Raise Ticket\", \"col\": 3}}, {\"id\": \"flick-sc-6\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"My Tickets\", \"col\": 3}}, {\"id\": \"flicksupset\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Support Settings\", \"col\": 3}}]",
  "creation": "2026-10-28 22:00:00",
  "custom_blocks": [
   {
@@ -18,7 +18,7 @@
  "is_hidden": 0,
  "label": "Flick",
  "links": [],
- "modified": "2026-11-03 17:16:56.267829",
+ "modified": "2026-11-13 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Flick E-Invoicing",
  "name": "Flick",
@@ -44,6 +44,13 @@
    "link_to": "E-Invoice Status",
    "report_ref_doctype": "E Invoice Submission",
    "type": "Report"
+  },
+  {
+   "color": "Grey",
+   "doc_view": "",
+   "label": "Readiness",
+   "link_to": "e-invoicing-readiness",
+   "type": "Page"
   },
   {
    "color": "Grey",

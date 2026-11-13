@@ -2,6 +2,7 @@
 data. The questions live in the Customer Data Form single; each link is a Customer Data Request
 with its own random key, closed once the customer submits."""
 
+import re
 import secrets
 
 import frappe
@@ -342,3 +343,174 @@ def apply_to_customer(name: str) -> list[str]:
 		changed.append(_("Billing Address"))
 	doc.db_set("status", "Applied")
 	return changed
+
+
+# Bulk email ------------------------------------------------------------------------------------
+
+DEFAULT_SUBJECT = "UAE e-invoicing: please confirm your company details – {{ company }}"
+DEFAULT_BODY = """<p>Dear {{ customer_name }},</p>
+<p>UAE e-invoicing becomes mandatory from 2027. To keep issuing invoices to you without interruption,
+we need to confirm the details that will appear on your e-invoices (legal name, TRN, e-invoicing TIN,
+address and trade licence).</p>
+<p>Please fill in this short form. It takes about five minutes:</p>
+<p><a href="{{ link }}">{{ link }}</a></p>
+<p>The link is personal to your company and works once.{% if expires_on %} It is valid until {{ expires_on }}.{% endif %}</p>
+<p>Thank you,<br>{{ company }}</p>"""
+
+
+def email_template() -> dict:
+	form = frappe.get_single(FORM)
+	return {"subject": form.get("email_subject") or DEFAULT_SUBJECT, "body": form.get("email_body") or DEFAULT_BODY}
+
+
+def recipient(customer: str) -> str | None:
+	"""Where the form goes: the e-invoicing contact email, else the customer's primary contact."""
+	email, primary = frappe.db.get_value("Customer", customer, ["einvoice_contact_email", "email_id"]) or (None, None)
+	for value in (email, primary):
+		if value and validate_email_address(value.strip()):
+			return value.strip()
+	return None
+
+
+def _pending_request(customer: str) -> dict:
+	"""The customer's open link if one still works, so an earlier email keeps working; else a new one."""
+	row = frappe.db.get_value(
+		REQUEST,
+		{"customer": customer, "status": "Pending"},
+		["name", "form_url", "expires_on", "key"],
+		as_dict=True,
+		order_by="creation desc",
+	)
+	if row and not (row.expires_on and now_datetime() > row.expires_on):
+		return {"name": row.name, "url": row.form_url, "expires_on": row.expires_on}
+	return create_request(customer)
+
+
+def _outgoing_account():
+	from frappe.email.doctype.email_account.email_account import EmailAccount
+
+	try:
+		return EmailAccount.find_outgoing(match_by_doctype=REQUEST)
+	except Exception:
+		return None
+
+
+def _check_template(subject: str, body: str, customer: str):
+	try:
+		return _render(subject, body, customer, "x", None)
+	except Exception as e:
+		# render_template wraps the error and traceback in HTML; the first line is the useful part.
+		text = re.sub(r"<[^>]+>", "\n", str(e)).strip().split("\n")[0]
+		frappe.throw(_("The template has an error: {0}").format(text), title=_("Template error"))
+
+
+def _render(subject: str, body: str, customer: str, link: str, expires_on) -> tuple[str, str]:
+	from frappe.utils import format_datetime
+
+	ctx = {
+		"customer": customer,
+		"customer_name": frappe.db.get_value("Customer", customer, "customer_name") or customer,
+		"company": frappe.defaults.get_global_default("company") or "",
+		"link": link,
+		"expires_on": format_datetime(expires_on, "d MMMM yyyy") if expires_on else "",
+	}
+	return frappe.render_template(subject, ctx), frappe.render_template(body, ctx)
+
+
+@frappe.whitelist()
+def get_email_template() -> dict:
+	frappe.has_permission(REQUEST, "create", throw=True)
+	return email_template()
+
+
+@frappe.whitelist()
+def preview_email(customers: list | str, subject: str, body: str) -> dict:
+	"""What the email will look like for the first customer, and who it would go to. Makes no link."""
+	frappe.has_permission(REQUEST, "create", throw=True)
+	customers = frappe.parse_json(customers) if isinstance(customers, str) else customers
+	recipients = [{"customer": c, "email": recipient(c)} for c in customers]
+	first = customers[0] if customers else None
+	if not first:
+		return {"recipients": [], "subject": "", "body": ""}
+	sample = form_url("example-link-made-when-sent")
+	days = frappe.get_single(FORM).link_validity_days or 0
+	_check_template(subject, body, first)
+	rendered = _render(subject, body, first, sample, add_days(now_datetime(), days) if days > 0 else None)
+	return {
+		"recipients": recipients,
+		"customer": first,
+		"subject": rendered[0],
+		"body": rendered[1],
+		"no_email_account": not _outgoing_account(),
+	}
+
+
+@frappe.whitelist()
+def send_bulk(customers: list | str, subject: str, body: str, save_template: int = 0) -> dict:
+	"""Queue the form email to each customer that has an address; return who was skipped."""
+	frappe.has_permission(REQUEST, "create", throw=True)
+	customers = frappe.parse_json(customers) if isinstance(customers, str) else customers
+	if not customers:
+		frappe.throw(_("Select at least one customer."))
+	if not _outgoing_account():
+		frappe.throw(_("Set up a default outgoing Email Account first (Email Account list)."))
+	_check_template(subject, body, customers[0])  # fail here, not in the job
+	if int(save_template or 0):
+		form = frappe.get_single(FORM)
+		form.email_subject, form.email_body = subject, body
+		form.save()
+	to_send, skipped = [], []
+	for c in customers:
+		frappe.has_permission("Customer", "read", c, throw=True)
+		(to_send if recipient(c) else skipped).append(c)
+	if to_send:
+		frappe.enqueue(
+			"flick_einvoicing.data_form.send_emails",
+			queue="long",
+			timeout=3600,
+			customers=to_send,
+			subject=subject,
+			body=body,
+			user=frappe.session.user,
+		)
+	return {"queued": len(to_send), "skipped": skipped}
+
+
+def send_emails(customers: list, subject: str, body: str, user: str):
+	frappe.set_user(user)
+	sent = failed = 0
+	for customer in customers:
+		try:
+			email = recipient(customer)
+			if not email:
+				continue
+			req = _pending_request(customer)
+			subj, html = _render(subject, body, customer, req["url"], req["expires_on"])
+			frappe.sendmail(
+				recipients=[email],
+				subject=subj,
+				message=html,
+				reference_doctype=REQUEST,
+				reference_name=req["name"],
+				now=False,
+			)
+			frappe.db.set_value(
+				REQUEST,
+				req["name"],
+				{
+					"sent_on": now_datetime(),
+					"sent_to": email,
+					"send_count": (frappe.db.get_value(REQUEST, req["name"], "send_count") or 0) + 1,
+				},
+			)
+			frappe.db.commit()
+			sent += 1
+		except Exception:
+			frappe.db.rollback()
+			failed += 1
+			frappe.log_error(title=f"Data form email to {customer} failed")
+	frappe.publish_realtime(
+		"msgprint",
+		{"message": _("Data form emails queued: {0}. Failed: {1}.").format(sent, failed), "title": _("Data Collection")},
+		user=user,
+	)
