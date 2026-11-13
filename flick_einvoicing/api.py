@@ -64,6 +64,10 @@ def test_connection(company: str) -> dict:
 		frappe.throw(_("Flick answered {0}: {1}").format(response.status or "nothing", response.message))
 	participants = (response.data or {}).get("participants") or []
 	match = next((p for p in participants if p.get("id") == settings.participant_id), None)
+	# Keep the company's own Peppol ID, which the supplier letter prints, in step with Flick.
+	if match and match.get("peppol_id") and frappe.get_meta("Company").has_field("einvoice_peppol_id"):
+		if not frappe.db.get_value("Company", company, "einvoice_peppol_id"):
+			frappe.db.set_value("Company", company, "einvoice_peppol_id", match["peppol_id"])
 	return {
 		"participants": [
 			{

@@ -32,11 +32,15 @@ doctype_js = {
 	"E Invoice Received": "public/js/support.js",
 	"E Invoicing Settings": "public/js/support.js",
 	"Customer": "public/js/party.js",
+	"Company": "public/js/company.js",
 	"Supplier": "public/js/party.js",
 }
 
 # Installation
 # ------------
+
+# The supplier letter print format reads the company's details through this.
+jinja = {"methods": ["flick_einvoicing.supplier_letter.letter_data"]}
 
 boot_session = "flick_einvoicing.support.boot_session"
 after_install = "flick_einvoicing.install.after_install"

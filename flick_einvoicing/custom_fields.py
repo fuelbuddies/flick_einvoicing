@@ -416,6 +416,49 @@ def get_custom_fields() -> dict[str, list[dict]]:
 				"description": "The line of the supplier's e-invoice this row bills, counted from 1.",
 			},
 		],
+		# Your own details as a buyer, for the letter you send suppliers before go-live.
+		"Company": [
+			{
+				"fieldname": "einvoice_section",
+				"label": "E-Invoicing",
+				"fieldtype": "Section Break",
+				"insert_after": "tax_id",
+				"collapsible": 1,
+			},
+			{
+				"fieldname": "einvoice_peppol_id",
+				"label": "Peppol ID",
+				"fieldtype": "Data",
+				"insert_after": "einvoice_section",
+				"description": "0235: followed by your 10-digit TIN. Filled in from Flick by Test Connection in E Invoicing Settings.",
+			},
+			{
+				"fieldname": "einvoice_trade_licence",
+				"label": "Trade Licence Number",
+				"fieldtype": "Data",
+				"insert_after": "einvoice_peppol_id",
+			},
+			{
+				"fieldname": "einvoice_trade_licence_authority",
+				"label": "Licensing Authority",
+				"fieldtype": "Data",
+				"insert_after": "einvoice_trade_licence",
+			},
+			{"fieldname": "einvoice_column_break", "fieldtype": "Column Break", "insert_after": "einvoice_trade_licence_authority"},
+			{
+				"fieldname": "einvoice_phase",
+				"label": "E-Invoicing Phase",
+				"fieldtype": "Select",
+				"options": "\n" + codes.EINVOICE_PHASES,
+				"insert_after": "einvoice_column_break",
+			},
+			{
+				"fieldname": "einvoice_go_live_date",
+				"label": "Planned Go-Live Date",
+				"fieldtype": "Date",
+				"insert_after": "einvoice_phase",
+			},
+		],
 		"Item": [
 			{
 				"fieldname": "einvoice_sac_code",
