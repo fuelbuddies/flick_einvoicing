@@ -222,11 +222,30 @@ class Readiness {
 					);
 				},
 			});
+			d.add_custom_action(__("Send Test"), () => this.send_test(d, customers), "btn-default");
 			// Editing the template means the old preview no longer shows what will be sent.
 			["subject", "body"].forEach((f) => (d.fields_dict[f].df.onchange = () => (d.previewed = false)));
 			d.show();
 			this.preview(d, customers);
 		});
+	}
+
+	// The email exactly as the first selected customer gets it, to an address of your choosing.
+	send_test(d, customers) {
+		const v = d.get_values(true);
+		frappe.prompt(
+			[{ fieldtype: "Data", options: "Email", fieldname: "email", label: __("Send test to"), reqd: 1, default: frappe.session.user_email }],
+			({ email }) =>
+				frappe
+					.call({
+						method: "flick_einvoicing.data_form.send_test_email",
+						args: { email, customer: customers[0], subject: v.subject || "", body: v.body || "" },
+						freeze: true,
+					})
+					.then(({ message }) => frappe.msgprint({ title: __("Test Email"), message, indicator: "blue" })),
+			__("Send Test Email (as {0})", [customers[0]]),
+			__("Send")
+		);
 	}
 
 	preview(d, customers) {

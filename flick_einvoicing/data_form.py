@@ -567,3 +567,24 @@ def set_contact_email(customer: str, email: str | None = None) -> str:
 	doc.einvoice_contact_email = email
 	doc.save()
 	return email
+
+
+@frappe.whitelist()
+def send_test_email(email: str, customer: str, subject: str, body: str) -> str:
+	"""The email as `customer` would get it, sent to `email` instead. Makes no link and touches no
+	customer or request: the link in it is a sample that does not open a form."""
+	frappe.has_permission(REQUEST, "create", throw=True)
+	email = (email or "").strip()
+	if not validate_email_address(email):
+		frappe.throw(_("{0} is not a valid email address.").format(frappe.bold(email)))
+	if not _outgoing_account():
+		frappe.throw(_("Set up a default outgoing Email Account first (Email Account list)."))
+	_check_template(subject, body, customer)
+	days = frappe.get_single(FORM).link_validity_days or 0
+	subj, html = _render(
+		subject, body, customer, form_url("test-link-not-valid"), add_days(now_datetime(), days) if days > 0 else None
+	)
+	frappe.sendmail(recipients=[email], subject=f"[TEST] {subj}", message=html, now=True)
+	if frappe.are_emails_muted():
+		return _("Emails are muted on this site (mute_emails), so the test was not delivered.")
+	return _("Test email sent to {0}.").format(email)
