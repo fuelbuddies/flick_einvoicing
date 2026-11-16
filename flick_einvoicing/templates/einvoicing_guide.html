@@ -139,16 +139,17 @@
 	set up per company under <i>Custom Fields</i> in E Invoicing Settings:
 </p>
 <ul>
-	<li><b>Item Attribute</b> (Line rows): a name and value on every line the value is filled for.</li>
+	<li><b>Item Attribute</b>: a name and value on every line the value is filled for.</li>
 	<li><b>Note</b>: a "Label: value" line in the invoice note, after the remarks. The whole note stays within 1000 characters, or the submit stops.</li>
 	<li><b>Document Reference</b>: the value as a reference number, the label as its description.</li>
 	<li><b>Buyer Reference</b>, <b>Accounting Cost</b>, <b>Project Reference</b>: the one value of that slot, replacing what the app would send there. Use them only for what they mean to the buyer.</li>
 </ul>
 <p>
-	{% raw %}The value is a template. <code>{po_no}</code> puts in a field: on a Line row the item row's first, then the
+	{% raw %}The value is a template. <code>{po_no}</code> puts in a field: on an Item Attribute row the item row's first, then the
 	invoice's. Fields combine freely, <code>{po_no} / {project}</code>. Jinja does the rest, with <code>doc</code> the invoice and
 	<code>item</code> the line: <code>{{ doc.custom_site_code }}</code>, <code>{% if doc.project %}Project {{ doc.project }}{% endif %}</code>,
-	<code>{{ doc.po_no or doc.name }}</code>, <code>{{ frappe.db.get_value("Customer", doc.customer, "customer_group") }}</code>.{% endraw %}
+	<code>{{ doc.po_no or doc.name }}</code>.{% endraw %} Templates can't read the database: for a field of a linked
+	record, the customer's say, add a field on the invoice that fetches it (Fetch From) and use that.
 	A value that comes out empty sends nothing. Field names are checked when the settings are saved, and
 	<i>Actions &gt; Preview Custom Fields</i> shows what each row sends for a chosen invoice.
 </p>
@@ -156,7 +157,7 @@
 <table>
 	<tr><th>Company</th><th>Send as</th><th>Label</th><th>Value</th></tr>
 	{%- for row in custom_fields %}
-	<tr><td>{{ row.parent|e }}</td><td>{{ row.target|e }}{% if row.level == "Line" %}, each line{% endif %}</td><td>{{ (row.label or "")|e }}</td><td><code>{{ row.template|e }}</code></td></tr>
+	<tr><td>{{ row.parent|e }}</td><td>{{ row.target|e }}{% if row.target == "Item Attribute" %}, each line{% endif %}</td><td>{{ (row.label or "")|e }}</td><td><code>{{ row.template|e }}</code></td></tr>
 	{%- endfor %}
 </table>
 {%- endif %}
