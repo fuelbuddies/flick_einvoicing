@@ -7,7 +7,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
-from flick_einvoicing.einvoice import code_lists, codes
+from flick_einvoicing.einvoice import code_lists, codes, custom_fields
 
 UUID_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
 
@@ -63,6 +63,7 @@ class EInvoicingSettings(Document):
 
 		self.validate_tax_treatments()
 		self.validate_charge_reasons()
+		custom_fields.validate_rows(self)
 		if self.enabled:
 			self.validate_ready()
 

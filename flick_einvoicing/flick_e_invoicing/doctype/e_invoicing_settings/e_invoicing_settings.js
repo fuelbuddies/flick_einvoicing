@@ -32,6 +32,10 @@ frappe.ui.form.on("E Invoicing Settings", {
 			call("test_connection", __("Asking Flick...")).then(({ message }) => show_participants(frm, message))
 		);
 
+		if ((frm.doc.custom_fields || []).length) {
+			frm.add_custom_button(__("Preview Custom Fields"), () => preview_custom_fields(frm), __("Actions"));
+		}
+
 		if (frm.doc.enabled) {
 			frm.add_custom_button(
 				__("Sync Events Now"),
@@ -174,3 +178,44 @@ flick_einvoicing.confirm_commercial_rounding = () => {
 			})
 	);
 };
+
+function preview_custom_fields(frm) {
+	if (frm.is_dirty()) {
+		frappe.msgprint(__("Save first: the preview uses the saved rows."));
+		return;
+	}
+	const d = new frappe.ui.Dialog({
+		title: __("Preview Custom Fields"),
+		fields: [
+			{ fieldname: "doctype", fieldtype: "Select", label: __("Type"), options: "Sales Invoice\nPurchase Invoice", default: "Sales Invoice", reqd: 1 },
+			{
+				fieldname: "invoice",
+				fieldtype: "Dynamic Link",
+				label: __("Invoice"),
+				options: "doctype",
+				reqd: 1,
+				get_query: () => ({ filters: { company: frm.doc.name } }),
+			},
+			{ fieldname: "result", fieldtype: "HTML" },
+		],
+		primary_action_label: __("Preview"),
+		primary_action(values) {
+			frappe
+				.call("flick_einvoicing.einvoice.custom_fields.preview", { company: frm.doc.name, doctype: values.doctype, invoice: values.invoice })
+				.then(({ message }) => {
+					const rows = (message || [])
+						.map(
+							(r) =>
+								`<tr><td>${r.row}</td><td>${frappe.utils.escape_html(r.target)}</td><td>${frappe.utils.escape_html(r.where)}</td><td>${frappe.utils.escape_html(r.label || "")}</td><td>${r.value ? frappe.utils.escape_html(r.value) : `<span class="text-muted">${__("(empty, not sent)")}</span>`}</td></tr>`
+						)
+						.join("");
+					d.fields_dict.result.$wrapper.html(
+						rows
+							? `<table class="table table-bordered table-sm"><thead><tr><th>#</th><th>${__("Send As")}</th><th>${__("Where")}</th><th>${__("Label")}</th><th>${__("Value")}</th></tr></thead><tbody>${rows}</tbody></table>`
+							: `<p class="text-muted">${__("No enabled rows.")}</p>`
+					);
+				});
+		},
+	});
+	d.show();
+}

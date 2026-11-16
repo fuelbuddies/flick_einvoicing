@@ -26,7 +26,7 @@ import frappe
 from frappe.utils import cstr, flt, get_datetime, get_system_timezone, getdate, strip_html
 
 from flick_einvoicing.compat import file_bytes
-from flick_einvoicing.einvoice import code_lists, codes
+from flick_einvoicing.einvoice import code_lists, codes, custom_fields
 
 SALES_TEMPLATE = "Sales Taxes and Charges Template"
 PURCHASE_TEMPLATE = "Purchase Taxes and Charges Template"
@@ -191,6 +191,7 @@ class _Builder:
 				self.problem("The invoice has no exchange rate to AED.")
 			doc["currency_exchange_rate"] = rate
 
+		custom_fields.apply(doc, inv, doc["invoice_lines"], self.settings, self.problem)
 		return _drop_empty(doc)
 
 	def document_type(self, categories: set[str]) -> str:

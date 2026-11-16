@@ -1,0 +1,75 @@
+{
+ "actions": [],
+ "creation": "2026-11-16 18:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "enabled",
+  "level",
+  "target",
+  "label",
+  "template"
+ ],
+ "fields": [
+  {
+   "columns": 1,
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  },
+  {
+   "columns": 1,
+   "default": "Invoice",
+   "fieldname": "level",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Level",
+   "options": "Invoice\nLine",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "default": "Note",
+   "description": "Line: Item Attribute. Invoice: Note, Document Reference, or the one value of Buyer Reference, Accounting Cost or Project Reference.",
+   "fieldname": "target",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Send As",
+   "options": "Note\nDocument Reference\nBuyer Reference\nAccounting Cost\nProject Reference\nItem Attribute",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "description": "Attribute name, note prefix or document description.",
+   "fieldname": "label",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Label"
+  },
+  {
+   "columns": 4,
+   "description": "{fieldname} takes a field of the line (Line level) or of the invoice; combine freely: {po_no}-{project}. Full Jinja works too: {{ doc.customer }}, {{ item.item_code }}, {% if %}. Empty result sends nothing.",
+   "fieldname": "template",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Value",
+   "reqd": 1
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-11-16 18:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Flick E-Invoicing",
+ "name": "E Invoicing Custom Field",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 0
+}

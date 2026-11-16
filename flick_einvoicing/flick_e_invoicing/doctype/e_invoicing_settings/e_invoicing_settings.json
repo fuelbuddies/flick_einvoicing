@@ -36,6 +36,9 @@
   "column_break_content",
   "attach_pdf",
   "attach_xml",
+  "custom_fields_section",
+  "custom_fields",
+  "custom_fields_help",
   "payment_section",
   "payment_means_code",
   "payment_account_id",
@@ -289,6 +292,24 @@
    "fieldname": "attach_xml",
    "fieldtype": "Check",
    "label": "Attach the UBL XML to the Invoice"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "custom_fields_section",
+   "fieldtype": "Section Break",
+   "label": "Custom Fields",
+   "description": "Extra fields carried on the e-invoice. PINT-AE takes no new fields, so each value goes into a standard slot: an item attribute on every line, a line of the invoice note, or a document reference. Use Preview Custom Fields to check them on an invoice."
+  },
+  {
+   "fieldname": "custom_fields",
+   "fieldtype": "Table",
+   "label": "Custom Fields",
+   "options": "E Invoicing Custom Field"
+  },
+  {
+   "fieldname": "custom_fields_help",
+   "fieldtype": "HTML",
+   "options": "<div class=\"small text-muted\" style=\"line-height:1.6\">\n<b>Writing the Value</b><br>\n<b>Shorthand</b>: <code>{fieldname}</code> puts in a field. On a Line row it looks at the item row first, then the invoice. Combine freely: <code>{po_no} / {project}</code>, <code>{item_code}-{batch_no}</code>.<br>\n<b>Jinja</b> for anything more. <code>doc</code> is the invoice, <code>item</code> the line (Line rows only):\n<ul style=\"margin:4px 0 4px 18px;padding:0\">\n<li>Explicit fields: <code>{{ doc.po_no }}</code>, <code>{{ item.item_code }}</code>, custom fields too: <code>{{ doc.custom_site_code }}</code></li>\n<li>Only when filled: <code>{% if doc.project %}Project {{ doc.project }}{% endif %}</code></li>\n<li>Fallback: <code>{{ doc.po_no or doc.name }}</code></li>\n<li>Dates and numbers: <code>{{ frappe.format(doc.po_date, {'fieldtype': 'Date'}) }}</code>, <code>{{ \"%.2f\"|format(item.weight_per_unit) }}</code></li>\n<li>From a linked record: <code>{{ frappe.db.get_value(\"Customer\", doc.customer, \"customer_group\") }}</code></li>\n<li>Text: <code>{{ doc.customer_name|upper }}</code>, <code>{{ item.description|striptags|truncate(80) }}</code></li>\n</ul>\nAn empty result sends nothing. Field names are checked when you save; save, then use <b>Actions &gt; Preview Custom Fields</b> to see the values for a real invoice. The invoice note, remarks included, must stay within 1000 characters.\n</div>"
   },
   {
    "description": "Every invoice carries how it is paid (PINT-AE ibr-191-ae).",
@@ -565,7 +586,7 @@
  ],
  "index_web_pages_for_search": 0,
  "links": [],
- "modified": "2026-11-03 16:21:03.883396",
+ "modified": "2026-11-16 18:00:00.000000",
  "modified_by": "Administrator",
  "module": "Flick E-Invoicing",
  "name": "E Invoicing Settings",
