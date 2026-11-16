@@ -132,6 +132,35 @@
 	out at the invoice's conversion rate; Flick does not derive them.
 </p>
 
+<h4>Custom fields</h4>
+<p>
+	PINT-AE takes no fields of its own making: Flick drops an unknown field without a word. Extra details a buyer
+	asks for, an LPO, a site code, a job number, go instead into the slots the standard keeps for free information,
+	set up per company under <i>Custom Fields</i> in E Invoicing Settings:
+</p>
+<ul>
+	<li><b>Item Attribute</b> (Line rows): a name and value on every line the value is filled for.</li>
+	<li><b>Note</b>: a "Label: value" line in the invoice note, after the remarks. The whole note stays within 1000 characters, or the submit stops.</li>
+	<li><b>Document Reference</b>: the value as a reference number, the label as its description.</li>
+	<li><b>Buyer Reference</b>, <b>Accounting Cost</b>, <b>Project Reference</b>: the one value of that slot, replacing what the app would send there. Use them only for what they mean to the buyer.</li>
+</ul>
+<p>
+	{% raw %}The value is a template. <code>{po_no}</code> puts in a field: on a Line row the item row's first, then the
+	invoice's. Fields combine freely, <code>{po_no} / {project}</code>. Jinja does the rest, with <code>doc</code> the invoice and
+	<code>item</code> the line: <code>{{ doc.custom_site_code }}</code>, <code>{% if doc.project %}Project {{ doc.project }}{% endif %}</code>,
+	<code>{{ doc.po_no or doc.name }}</code>, <code>{{ frappe.db.get_value("Customer", doc.customer, "customer_group") }}</code>.{% endraw %}
+	A value that comes out empty sends nothing. Field names are checked when the settings are saved, and
+	<i>Actions &gt; Preview Custom Fields</i> shows what each row sends for a chosen invoice.
+</p>
+{%- if custom_fields %}
+<table>
+	<tr><th>Company</th><th>Send as</th><th>Label</th><th>Value</th></tr>
+	{%- for row in custom_fields %}
+	<tr><td>{{ row.parent|e }}</td><td>{{ row.target|e }}{% if row.level == "Line" %}, each line{% endif %}</td><td>{{ (row.label or "")|e }}</td><td><code>{{ row.template|e }}</code></td></tr>
+	{%- endfor %}
+</table>
+{%- endif %}
+
 <h4>Correcting an invoice</h4>
 <ul>
 	<li>An invoice can be cancelled only before it reached Flick, or once both of its tracks failed for good and Flick released its number. Otherwise make a credit note from it (Create &gt; Return / Credit Note), with its reason.</li>
@@ -297,7 +326,7 @@
 {%- endif %}
 <p>
 	Elsewhere: <i>Tax Treatments</i> map each VAT template to its category, <i>Charge Accounts</i> map charges sent in
-	the taxes table, and the units of measure are linked to codes in the Code List <i>UN/ECE Recommendation 20</i>.
+	the taxes table, <i>Custom Fields</i> add the extra details described under Invoices you send, and the units of measure are linked to codes in the Code List <i>UN/ECE Recommendation 20</i>.
 	The site settings at the top of this page apply to every company.
 </p>
 </div>

@@ -52,4 +52,10 @@ def context() -> dict:
 		),
 		"companies": companies,
 		"discount_reason_code": codes.DISCOUNT_REASON_CODE,
+		"custom_fields": frappe.get_all(
+			"E Invoicing Custom Field",
+			filters={"parenttype": "E Invoicing Settings", "enabled": 1},
+			fields=["parent", "level", "target", "label", "template"],
+			order_by="parent, idx",
+		),
 	}
