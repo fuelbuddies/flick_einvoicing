@@ -96,6 +96,24 @@
 	both until they finish. The ledger entries are ERPNext's own, made on submit as always.
 </p>
 
+<h4>Fixing what stops the submit</h4>
+<p>
+	The invoice's banner, <i>Check with Flick</i> and the submit error list each problem. Where the fix is on
+	another record, the problem ends with an <b>Open</b> link to it: the customer or supplier, its address, the
+	tax template, the account, the unit of measure, or the E Invoicing Settings. Those records show their own
+	e-invoicing state at the top of the form, and most can be fixed there, under the <b>E-Invoice</b> button:
+</p>
+<ul>
+	<li><b>Customer, and Supplier with self-billing</b>: green when ready to e-invoice, orange listing what is missing: Peppol ID, TRN, trade licence and its licensing authority, and the primary address with its emirate. <i>Check Peppol</i> asks the network whether the Peppol ID is registered.</li>
+	<li><b>Item Tax Template, Sales and Purchase Taxes and Charges Template</b>: the PINT-AE category it is mapped to, or orange when it has none. <i>Set PINT-AE Treatment</i> picks the category, with the exemption reason or reverse-charge goods type where needed.</li>
+	<li><b>Account</b> (tax, chargeable, or already mapped): the charge reason and VAT category when it is sent as a document-level charge. <i>Set as E-Invoice Charge</i> maps it; <i>Remove E-Invoice Charge</i> unmaps it.</li>
+	<li><b>UOM</b>: the PINT-AE unit code it sends, or orange when it has none, more than one, or one PINT-AE doesn't list. <i>Set PINT-AE Unit Code</i> searches the codes by code or name (LTR litre, KGM kilogram, H87 piece).</li>
+</ul>
+<p>
+	What these buttons save is kept in the company's E Invoicing Settings (Tax Treatments, Charge Accounts) and in
+	the code list's Common Codes, the same as editing them there, and is checked the same way.
+</p>
+
 <h4>Amounts on the e-invoice</h4>
 <ul>
 	<li>Money is stated in fils, 2 decimals, whatever this site keeps. Unit prices and quantities go with up to 6 decimals.</li>
@@ -116,7 +134,7 @@
 	<li>A line's own discount shows as a price discount: the gross price and the discount off it.</li>
 	<li>The invoice's Additional Discount goes as an allowance per VAT category, reason {{ discount_reason_code }} "Discount", unless the company's <i>Invoice Discount</i> is set to spread it over the lines, or prices include tax: then it is folded into the lines' amounts. The totals are the same either way.</li>
 	<li>A negative Additional Discount raises the total, to round it up, say. PINT-AE has no negative allowance, so it goes as a charge with the company's <i>Reason Code for Negative Discounts</i>, AJ (Adjustments) unless changed; with none set, such invoices are stopped.</li>
-	<li>A charge in the taxes table, such as freight, needs its account mapped under <i>Charge Accounts</i> with a reason code and VAT category, charged "Actual". Every other row must be VAT, on the net total or on a previous row.</li>
+	<li>A charge in the taxes table, such as freight, needs its account mapped under <i>Charge Accounts</i> (or from the account, <i>E-Invoice &gt; Set as E-Invoice Charge</i>) with a reason code and VAT category, charged "Actual". Every other row must be VAT, on the net total or on a previous row.</li>
 </ul>
 
 <h4>Buyers abroad</h4>
@@ -328,6 +346,7 @@
 <p>
 	Elsewhere: <i>Tax Treatments</i> map each VAT template to its category, <i>Charge Accounts</i> map charges sent in
 	the taxes table, <i>Custom Fields</i> add the extra details described under Invoices you send, and the units of measure are linked to codes in the Code List <i>UN/ECE Recommendation 20</i>.
+	Templates, accounts and units can also be set from their own forms (see Fixing what stops the submit).
 	The site settings at the top of this page apply to every company.
 </p>
 </div>
