@@ -10,7 +10,7 @@ from frappe import _
 from frappe.utils import add_days, cint, cstr, flt, now_datetime, time_diff_in_seconds
 
 from flick_einvoicing import compat
-from flick_einvoicing.einvoice import code_lists, inbound, reconcile, service, setup
+from flick_einvoicing.einvoice import code_lists, codes, inbound, reconcile, service, setup
 from flick_einvoicing.einvoice import status as st
 from flick_einvoicing.einvoice.payload import invoice_problems
 from flick_einvoicing.einvoice.scope import settings_for, skip_reason
@@ -278,7 +278,40 @@ def check_invoice(doctype: str, name: str) -> dict:
 	if problems:
 		return {"valid": False, "problems": problems, "checked_by": "this app"}
 	valid, issues = service.validate_with_flick(invoice, settings)
-	return {"valid": valid, "problems": issues, "checked_by": "Flick"}
+	result = {"valid": valid, "problems": issues, "checked_by": "Flick"}
+	peppol = _buyer_peppol(invoice, settings)
+	if peppol:
+		result["peppol"] = peppol
+	return result
+
+
+def _buyer_peppol(invoice, settings) -> dict | None:
+	"""Whether the buyer's Peppol ID is registered on the network. Flick's validation reads
+	the XML only, so a well-formed but wrong ID would otherwise surface after submit."""
+	if invoice.doctype == "Purchase Invoice":
+		return None  # self-billing: the supplier's ID is checked from the supplier form
+	customer = frappe.db.get_value(
+		"Customer", invoice.customer, ["einvoice_routing", "einvoice_peppol_id"], as_dict=True
+	)
+	if not customer or (customer.einvoice_routing or codes.ROUTING_PEPPOL) != codes.ROUTING_PEPPOL:
+		return None
+	peppol_id = (customer.einvoice_peppol_id or "").strip()
+	if not peppol_id:
+		return None
+	pre_production = settings.environment != "Production"
+	try:
+		response = get_client(settings).lookup(peppol_id)
+	except Exception:
+		frappe.log_error(f"Peppol lookup for {peppol_id}")
+		response = None
+	if not response or not response.ok or not isinstance(response.data, dict):
+		return {"identifier": peppol_id, "is_registered": None, "pre_production": pre_production}
+	return {
+		"identifier": response.data.get("identifier") or peppol_id,
+		"is_registered": bool(response.data.get("is_registered")),
+		"participant_name": response.data.get("participant_name"),
+		"pre_production": pre_production,
+	}
 
 
 @frappe.whitelist()

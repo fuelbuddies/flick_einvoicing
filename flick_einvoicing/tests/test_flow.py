@@ -1056,6 +1056,27 @@ class TestSending(FlowTestCase):
 			valid, issues = service.validate_with_flick(si, self.settings())
 		self.assertEqual((valid, issues), (False, ["Due date (ibr-127-ae)"]))
 
+	def test_check_invoice_looks_up_the_buyer_peppol_id(self):
+		from flick_einvoicing import api
+
+		si = make_invoice(self.fx, [(1, 100, None)])
+		peppol_id = frappe.db.get_value("Customer", si.customer, "einvoice_peppol_id")
+		self.assertTrue(peppol_id)
+		valid = response(200, {"data": {"valid": True}})
+		found = response(200, {"data": {"identifier": peppol_id, "is_registered": True, "participant_name": "Buyer LLC"}})
+		fake = FakeFlick().on("POST", r"/documents/validate", valid).on("GET", r"/peppol/lookup/", found)
+		with self.flick(fake):
+			result = api.check_invoice(si.doctype, si.name)
+		self.assertTrue(result["valid"])
+		self.assertEqual((result["peppol"]["is_registered"], result["peppol"]["participant_name"]), (True, "Buyer LLC"))
+
+		# A failed lookup is reported as unknown and never fails the check.
+		fake = FakeFlick().on("POST", r"/documents/validate", valid).on("GET", r"/peppol/lookup/", response(500, {}))
+		with self.flick(fake):
+			result = api.check_invoice(si.doctype, si.name)
+		self.assertTrue(result["valid"])
+		self.assertIsNone(result["peppol"]["is_registered"])
+
 	def test_flicks_pdf_is_attached_to_the_invoice(self):
 		si, sub = self.submitted_invoice()
 		self.settings(attach_pdf=1)

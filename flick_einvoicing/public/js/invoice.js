@@ -14,19 +14,41 @@ if (!flick_einvoicing.invoice_form_registered) {
 		Failed: "red",
 	};
 
+	// The buyer's Peppol ID, looked up on the network. A warning only: it never blocks.
+	const peppol_line = (p) => {
+		if (!p) return "";
+		const id = frappe.utils.escape_html(p.identifier);
+		let text;
+		if (p.is_registered) {
+			const name = p.participant_name ? ` ${__("as")} <b>${frappe.utils.escape_html(p.participant_name)}</b>` : "";
+			text = `<span class="text-success">${__("Buyer Peppol ID {0} is registered on Peppol{1}.", [id, name])}</span>`;
+		} else if (p.is_registered === false) {
+			text = `<span class="text-warning">${__("Buyer Peppol ID {0} is not registered on Peppol. Check it with the customer before submitting.", [id])}</span>`;
+			if (p.pre_production) text += `<br><small>${__("Pre-production lookups ask the production network, so test participants always show as not registered.")}</small>`;
+		} else {
+			text = `<span class="text-muted">${__("Could not look up buyer Peppol ID {0} on the network.", [id])}</span>`;
+		}
+		return `<p>${text}</p>`;
+	};
+
 	const show_check = (result) => {
 		if (result.skipped) {
 			frappe.msgprint({ title: __("E-invoicing not applicable"), message: result.skipped, indicator: "blue" });
 			return;
 		}
 		if (result.valid) {
-			frappe.msgprint({ title: __("Ready to e-invoice"), message: __("Flick accepts this invoice as it stands."), indicator: "green" });
+			const warn = result.peppol && result.peppol.is_registered === false;
+			frappe.msgprint({
+				title: __("Ready to e-invoice"),
+				message: `<p>${__("Flick accepts this invoice as it stands.")}</p>${peppol_line(result.peppol)}`,
+				indicator: warn ? "orange" : "green",
+			});
 			return;
 		}
 		const items = (result.problems || []).map((p) => `<li>${frappe.utils.escape_html(p)}</li>`).join("");
 		frappe.msgprint({
 			title: result.valid === null ? __("Flick could not check it") : __("Not ready to e-invoice"),
-			message: `<p>${__("Checked by {0}:", [result.checked_by])}</p><ul>${items}</ul>`,
+			message: `<p>${__("Checked by {0}:", [result.checked_by])}</p><ul>${items}</ul>${peppol_line(result.peppol)}`,
 			indicator: result.valid === null ? "orange" : "red",
 		});
 	};
