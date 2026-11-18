@@ -710,3 +710,55 @@ def dashboard(days: int = 30, company: str | None = None) -> dict:
 		),
 		"tracks": tracks,
 	}
+
+
+TREATMENT_FIELDS = ("tax_category", "exemption_reason_code", "exemption_reason_text", "reverse_charge_item_type")
+TEMPLATE_DOCTYPES = (
+	"Item Tax Template",
+	"Sales Taxes and Charges Template",
+	"Purchase Taxes and Charges Template",
+)
+
+
+def _template_company(template_type: str, template: str) -> str:
+	if template_type not in TEMPLATE_DOCTYPES:
+		frappe.throw(_("{0} has no PINT-AE tax treatment.").format(template_type))
+	frappe.has_permission(template_type, "read", template, throw=True)
+	company = frappe.db.get_value(template_type, template, "company")
+	if not company:
+		frappe.throw(_("{0} {1} has no company.").format(template_type, template))
+	return company
+
+
+@frappe.whitelist()
+def tax_treatment(template_type: str, template: str) -> dict:
+	"""The PINT-AE treatment mapped to a VAT template, read from its company's E Invoicing Settings."""
+	company = _template_company(template_type, template)
+	out = {"company": company, "settings": bool(frappe.db.exists(SETTINGS, company)), "row": None}
+	if out["settings"]:
+		row = frappe.db.get_value(
+			"E Invoicing Tax Treatment",
+			{"parenttype": SETTINGS, "parent": company, "template_type": template_type, "template": template},
+			TREATMENT_FIELDS,
+			as_dict=True,
+		)
+		out["row"] = row
+	return out
+
+
+@frappe.whitelist(methods=["POST"])
+def set_tax_treatment(template_type: str, template: str, values: str | dict) -> None:
+	"""Add or update the template's row in Tax Treatments; the settings validate it as on their own form."""
+	company = _template_company(template_type, template)
+	values = frappe.parse_json(values) or {}
+	if not frappe.db.exists(SETTINGS, company):
+		frappe.throw(_("Create the E Invoicing Settings for {0} first.").format(company))
+	frappe.has_permission(SETTINGS, "write", doc=company, throw=True)
+	settings = frappe.get_doc(SETTINGS, company)
+	row = next(
+		(r for r in settings.tax_treatments if r.template_type == template_type and r.template == template),
+		None,
+	) or settings.append("tax_treatments", {"template_type": template_type, "template": template})
+	for field in TREATMENT_FIELDS:
+		row.set(field, values.get(field) or None)
+	settings.save()

@@ -34,6 +34,9 @@ doctype_js = {
 	"Customer": "public/js/party.js",
 	"Company": "public/js/company.js",
 	"Supplier": "public/js/party.js",
+	"Item Tax Template": "public/js/tax_template.js",
+	"Sales Taxes and Charges Template": "public/js/tax_template.js",
+	"Purchase Taxes and Charges Template": "public/js/tax_template.js",
 }
 
 # Installation

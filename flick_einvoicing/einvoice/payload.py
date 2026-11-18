@@ -343,7 +343,9 @@ class _Builder:
 			row = self.treatments.get((ITEM_TEMPLATE, item.item_tax_template))
 			if not row:
 				self.problem(
-					f"{label}: Item Tax Template {item.item_tax_template} has no tax treatment in E Invoicing Settings."
+					f"{label}: Item Tax Template {item.item_tax_template} has no tax treatment. In E Invoicing "
+					f"Settings, Tax Treatments, add a row with Template Type 'Item Tax Template' and Template "
+					f"{item.item_tax_template}; a line's Item Tax Template overrides the invoice's template."
 				)
 			return row
 		template = self.inv.get("taxes_and_charges")
