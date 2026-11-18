@@ -37,6 +37,8 @@ doctype_js = {
 	"Item Tax Template": "public/js/tax_template.js",
 	"Sales Taxes and Charges Template": "public/js/tax_template.js",
 	"Purchase Taxes and Charges Template": "public/js/tax_template.js",
+	"Account": "public/js/charge_account.js",
+	"UOM": "public/js/uom.js",
 }
 
 # Installation

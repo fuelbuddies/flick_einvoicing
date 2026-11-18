@@ -70,7 +70,7 @@ class TestUomFallback(FrappeTestCase):
 			problems = []
 			fake = SimpleNamespace(
 				settings=SimpleNamespace(uom_code_list="UN/ECE Recommendation 20"),
-				problem=problems.append,
+				problem=lambda text, link=None: problems.append(text),
 				_uom_common_code=lambda uom, c=uom_code: c,
 			)
 			self.assertEqual(_Builder._resolve_uom(fake, "ZZ No Link UOM", "Row 1"), expected)

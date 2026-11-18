@@ -1,11 +1,24 @@
-// "Check Peppol" on Customer and Supplier. Loaded per doctype, registered once.
+// "Check Peppol" and the e-invoice readiness line on Customer and Supplier. Loaded per doctype, registered once.
 frappe.provide("flick_einvoicing");
 
 if (!flick_einvoicing.party_form_registered) {
 	flick_einvoicing.party_form_registered = true;
 
+	// The line at the top of the form: ready, or what's missing before invoices to/for it will submit.
+	const show_status = (frm) =>
+		frappe.xcall("flick_einvoicing.readiness.party_status", { doctype: frm.doctype, name: frm.doc.name }).then((r) => {
+			if (!r || !r.applies) return;
+			if (r.missing.length) {
+				const list = r.missing.map((m) => frappe.utils.escape_html(m)).join(", ");
+				frm.dashboard.add_comment(`${__("Not ready to e-invoice, missing")}: ${list}`, "orange", true);
+			} else {
+				frm.dashboard.add_comment(__("Ready to e-invoice"), "green", true);
+			}
+		});
+
 	const handlers = {
 		refresh(frm) {
+			if (!frm.is_new()) show_status(frm);
 			if (frm.is_new() || !frm.doc.einvoice_peppol_id) return;
 			frm.add_custom_button(
 				__("Check Peppol"),

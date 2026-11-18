@@ -11,8 +11,8 @@ from frappe import _
 
 from flick_einvoicing.einvoice import codes
 
-PEPPOL_ID = re.compile(r"^0235:\d{10}$")
-TRN = re.compile(r"^\d{15}$")
+PEPPOL_ID = re.compile(codes.PEPPOL_ID_PATTERN)
+TRN = re.compile(codes.TRN_PATTERN)
 
 
 def data(party_type, filters):
@@ -95,16 +95,56 @@ def check(party_type, p) -> list[str]:
 		if not p.einvoice_peppol_id:
 			missing.append(_("Peppol ID"))
 		elif not PEPPOL_ID.match(p.einvoice_peppol_id.strip()):
-			missing.append(_("Peppol ID format (0235:+10 digits)"))
+			missing.append(_("Peppol ID format (0235: + 10 digits starting with 1)"))
 	if p.tax_id and not TRN.match(re.sub(r"\s", "", p.tax_id)):
 		missing.append(_("TRN format (15 digits)"))
 	if party_type == "Customer" and routing == codes.ROUTING_PEPPOL and not p.tax_id:
 		missing.append(_("TRN (or confirm not VAT registered)"))
 	if routing != codes.ROUTING_PEPPOL and not (p.get("einvoice_party_identifier") or p.einvoice_trade_licence):
 		missing.append(_("Buyer Identifier or Trade Licence"))
+	if party_type == "Supplier" and p.einvoice_self_billing and not p.einvoice_trade_licence:
+		missing.append(_("Trade Licence (self-billing)"))
 	if p.einvoice_trade_licence and not p.einvoice_trade_licence_authority:
 		missing.append(_("Licensing Authority"))
 	return missing
+
+
+def address_gaps(party_type: str, name: str, abroad_ok: bool) -> list[str]:
+	"""What the party's primary address lacks for an e-invoice; the invoice may still pick another."""
+	from frappe.contacts.doctype.address.address import get_default_address
+
+	address_name = get_default_address(party_type, name)
+	if not address_name:
+		return [_("Address")]
+	address = frappe.get_cached_doc("Address", address_name)
+	gaps = [
+		_("Address {0}").format(label)
+		for field, label in (("address_line1", _("Line 1")), ("city", _("City/Town")), ("country", _("Country")))
+		if not address.get(field)
+	]
+	in_uae = address.country and frappe.get_cached_value("Country", address.country, "code") == "ae"
+	if address.country and not in_uae and not abroad_ok:
+		gaps.append(_("Address outside the UAE (set E-Invoice Routing for a buyer abroad)"))
+	if in_uae and frappe.get_meta("Address").has_field("emirate") and not address.get("emirate"):
+		gaps.append(_("Address Emirate"))
+	return gaps
+
+
+@frappe.whitelist()
+def party_status(doctype: str, name: str) -> dict:
+	"""For the Customer and Supplier forms: what this party still needs before it can be e-invoiced."""
+	if doctype not in ("Customer", "Supplier"):
+		frappe.throw(_("Not a party: {0}").format(doctype))
+	party = frappe.get_doc(doctype, name)
+	party.check_permission("read")
+	if not frappe.db.exists("E Invoicing Settings", {"enabled": 1}):
+		return {"applies": False}
+	if doctype == "Supplier" and not party.get("einvoice_self_billing"):
+		return {"applies": False}  # suppliers matter only when we bill for them
+	missing = check(doctype, party)
+	routing = (party.get("einvoice_routing") or codes.ROUTING_PEPPOL) if doctype == "Customer" else codes.ROUTING_PEPPOL
+	missing += address_gaps(doctype, name, abroad_ok=routing != codes.ROUTING_PEPPOL)
+	return {"applies": True, "missing": missing}
 
 
 @frappe.whitelist()

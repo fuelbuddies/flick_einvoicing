@@ -31,6 +31,7 @@ from flick_einvoicing.einvoice import code_lists, codes, custom_fields
 SALES_TEMPLATE = "Sales Taxes and Charges Template"
 PURCHASE_TEMPLATE = "Purchase Taxes and Charges Template"
 ITEM_TEMPLATE = "Item Tax Template"
+SETTINGS_DOCTYPE = "E Invoicing Settings"
 VAT_CHARGE_TYPES = ("On Net Total", "On Previous Row Total", "On Previous Row Amount")
 NO_REMARKS = ("", "No Remarks")
 # An original that ERPNext doesn't hold, such as one issued in the previous system.
@@ -38,8 +39,10 @@ ADD_PRECEDING = "add its number and date under Preceding Invoices on the E-Invoi
 
 
 class InvoiceProblems(frappe.ValidationError):
-	def __init__(self, problems: list[str]):
+	def __init__(self, problems: list[str], links: dict | None = None):
 		self.problems = problems
+		# problem text -> (doctype, name) of the record that fixes it
+		self.links = links or {}
 		super().__init__("\n".join(problems))
 
 
@@ -47,17 +50,22 @@ def build_payload(invoice, settings) -> dict:
 	builder = _Builder(invoice, settings)
 	payload = builder.build()
 	if builder.problems:
-		raise InvoiceProblems(list(builder.problems))
+		raise InvoiceProblems(list(builder.problems), builder.links)
 	check_keys(payload)
 	return payload
 
 
 def invoice_problems(invoice, settings) -> list[str]:
+	return invoice_problems_with_links(invoice, settings)[0]
+
+
+def invoice_problems_with_links(invoice, settings) -> tuple[list[str], dict]:
+	"""The problems, and for those fixed on another record, that record as (doctype, name)."""
 	try:
 		build_payload(invoice, settings)
 	except InvoiceProblems as e:
-		return e.problems
-	return []
+		return e.problems, e.links
+	return [], {}
 
 
 def D(value) -> Decimal:
@@ -77,6 +85,7 @@ class _Builder:
 		self.inv = invoice
 		self.settings = settings
 		self.problems: dict[str, None] = {}  # ordered, without repeats
+		self.links: dict[str, tuple[str, str]] = {}
 		# ERPNext's precision may be 3 decimals; an e-invoice's money has 2 (ibr-091, ibr-121
 		# to ibr-125, found on pre-production), rounded half-up the way Flick derives VAT.
 		self.site_p = invoice.precision("grand_total") or 2
@@ -94,15 +103,20 @@ class _Builder:
 		self._uom_codes: dict[str, str | None] = {}
 		self._party = None
 
-	def problem(self, text: str):
+	def problem(self, text: str, link: tuple[str, str] | None = None):
 		self.problems[text] = None
+		if link and link[1]:
+			self.links[text] = link
+
+	def settings_problem(self, text: str):
+		self.problem(text, (SETTINGS_DOCTYPE, self.settings.name))
 
 	def quietly(self, build):
 		"""Build an optional block; drop it, and whatever it complained about, if incomplete."""
-		before = dict(self.problems)
+		before, links = dict(self.problems), dict(self.links)
 		value = build()
 		if len(self.problems) != len(before):
-			self.problems = before
+			self.problems, self.links = before, links
 			return None
 		return value
 
@@ -218,11 +232,13 @@ class _Builder:
 		name = self.inv.supplier if self.self_billed else self.inv.customer
 		if self.self_billed:
 			self.problem(
-				f"Self-billed invoices need the supplier's trade licence: set it, with the licensing authority, on {party} {name} (ibr-150-ae)."
+				f"Self-billed invoices need the supplier's trade licence: set it, with the licensing authority, on {party} {name} (ibr-150-ae).",
+				(party, name),
 			)
 		elif document_type in (codes.INVOICE_OUT_OF_SCOPE, codes.CREDIT_NOTE_OUT_OF_SCOPE):
 			self.problem(
-				f"Out-of-scope documents ({document_type}) need the buyer's trade licence: set it, with the licensing authority, on {party} {name} (ibr-136-ae)."
+				f"Out-of-scope documents ({document_type}) need the buyer's trade licence: set it, with the licensing authority, on {party} {name} (ibr-136-ae).",
+				(party, name),
 			)
 
 	def check_breakdown_categories(self, line_categories: set[str], entries: list[dict]):
@@ -310,14 +326,15 @@ class _Builder:
 					continue
 			if tax.account_head in self.charge_accounts:
 				if tax.charge_type != "Actual":
-					self.problem(f"{label} is a mapped charge account, so it must be charged 'Actual'.")
+					self.problem(f"{label} is a mapped charge account, so it must be charged 'Actual'.", ("Account", tax.account_head))
 				charge_rows.append(tax)
 			elif tax.charge_type in VAT_CHARGE_TYPES:
 				vat_rows.append(tax)
 			else:
 				self.problem(
-					f"{label} is charged '{tax.charge_type}'. Map its account as a document-level charge in "
-					"E Invoicing Settings, or charge VAT on the net total."
+					f"{label} is charged '{tax.charge_type}'. Map account {tax.account_head} as a document-level "
+					"charge (from the account's form, E-Invoice > Set as E-Invoice Charge), or charge VAT on the net total.",
+					("Account", tax.account_head),
 				)
 		return vat_rows, charge_rows
 
@@ -343,9 +360,10 @@ class _Builder:
 			row = self.treatments.get((ITEM_TEMPLATE, item.item_tax_template))
 			if not row:
 				self.problem(
-					f"{label}: Item Tax Template {item.item_tax_template} has no tax treatment. In E Invoicing "
-					f"Settings, Tax Treatments, add a row with Template Type 'Item Tax Template' and Template "
-					f"{item.item_tax_template}; a line's Item Tax Template overrides the invoice's template."
+					f"{label}: Item Tax Template {item.item_tax_template} has no tax treatment. Open the template "
+					"and use E-Invoice > Set PINT-AE Treatment (a line's Item Tax Template overrides the "
+					"invoice's template).",
+					(ITEM_TEMPLATE, item.item_tax_template),
 				)
 			return row
 		template = self.inv.get("taxes_and_charges")
@@ -353,7 +371,11 @@ class _Builder:
 			template_type = PURCHASE_TEMPLATE if self.self_billed else SALES_TEMPLATE
 			row = self.treatments.get((template_type, template))
 			if not row:
-				self.problem(f"{template_type} {template} has no tax treatment in E Invoicing Settings.")
+				self.problem(
+					f"{template_type} {template} has no tax treatment. Open the template and use "
+					"E-Invoice > Set PINT-AE Treatment.",
+					(template_type, template),
+				)
 			return row
 		self.problem(
 			f"{label}: neither the invoice nor the line has a tax template, so its VAT treatment is unknown."
@@ -534,7 +556,7 @@ class _Builder:
 	def _resolve_uom(self, uom: str, label: str) -> str | None:
 		code_list = self.settings.uom_code_list
 		if not code_list:
-			self.problem("Set the UOM Code List in E Invoicing Settings.")
+			self.settings_problem("Set the UOM Code List in E Invoicing Settings.")
 			return None
 		try:
 			from erpnext.edi.doctype.code_list.code_list import get_codes_for, get_default_code
@@ -545,7 +567,7 @@ class _Builder:
 			return None
 		found = get_codes_for(code_list, "UOM", uom)
 		if len(found) > 1:
-			self.problem(f"UOM {uom} is linked to more than one code in {code_list}: {', '.join(found)}.")
+			self.problem(f"UOM {uom} is linked to more than one code in {code_list}: {', '.join(found)}.", ("UOM", uom))
 			return None
 		# The Common Code typed on the UOM form is used when the code list has no link for it:
 		# it is where most people set it, and the code is still checked against PINT-AE below.
@@ -557,12 +579,14 @@ class _Builder:
 		if not code:
 			self.problem(
 				f"{label}: UOM {uom} has no unit code. Open UOM {uom} and set its Common Code "
-				f"(for example LTR litre, KGM kilogram, H87 piece)."
+				f"(for example LTR litre, KGM kilogram, H87 piece).",
+				("UOM", uom),
 			)
 			return None
 		if code not in code_lists.codes(code_lists.UNITS):
 			self.problem(
-				f"{label}: UOM {uom} has unit code {code}, but PINT-AE has no unit code {code}."
+				f"{label}: UOM {uom} has unit code {code}, but PINT-AE has no unit code {code}.",
+				("UOM", uom),
 			)
 			return None
 		return code
@@ -602,7 +626,7 @@ class _Builder:
 	def discount_charge(self, category: str, amount: Decimal) -> dict:
 		reason_code = cstr(self.settings.get("negative_discount_reason_code")).strip()
 		if not reason_code:
-			self.problem(
+			self.settings_problem(
 				"The invoice discount is negative, so it raises the total, and the e-invoice states that as a "
 				"charge. Set Reason Code for Negative Discounts in E Invoicing Settings."
 			)
@@ -754,19 +778,20 @@ class _Builder:
 		else:
 			peppol_id = cstr(party.get("einvoice_peppol_id")).strip()
 			if not peppol_id:
-				self.problem(f"{doctype} {name} has no Peppol ID.")
+				self.problem(f"{doctype} {name} has no Peppol ID.", (doctype, name))
 			elif not re.match(codes.PEPPOL_ID_PATTERN, peppol_id):
 				self.problem(
 					f"{doctype} {name}: Peppol ID {peppol_id} should be 0235: followed by the 10-digit Peppol "
 					"number starting with 1, e.g. 0235:1234567890 (not the 15-digit TRN). Flick's guide: "
-					"receiving_party.peppol_id, size 10 digits (1XXXXXXXXX)."
+					"receiving_party.peppol_id, size 10 digits (1XXXXXXXXX).",
+					(doctype, name),
 				)
 
 		trn = cstr(inv.get("tax_id") or party.get("tax_id")).strip()
 		if trn and not re.match(codes.TRN_PATTERN, trn):
-			self.problem(f"{doctype} {name}: TRN {trn} should be 15 digits.")
+			self.problem(f"{doctype} {name}: TRN {trn} should be 15 digits.", (doctype, name))
 		if "AE" in categories and not trn:
-			self.problem(f"Reverse charge needs the buyer's TRN on {doctype} {name} (ibr-103-ae).")
+			self.problem(f"Reverse charge needs the buyer's TRN on {doctype} {name} (ibr-103-ae).", (doctype, name))
 
 		identifiers = {}
 		if trn:
@@ -781,7 +806,7 @@ class _Builder:
 				# Flick's guide: authority_name is required with any AE:TL, "ibr-172-ae seller, ibr-101-ae buyer";
 				# on a self-billed document this party is the supplier, the seller.
 				rule = "ibr-172-ae" if self.self_billed else "ibr-101-ae"
-				self.problem(f"{doctype} {name}: a trade licence needs its licensing authority ({rule}).")
+				self.problem(f"{doctype} {name}: a trade licence needs its licensing authority ({rule}).", (doctype, name))
 
 		# The buyer's own identifier (Flick's party_identifier, IBT-046): what names a buyer with no
 		# TRN and no Peppol ID of its own. Left empty, its trade licence number stands in.
@@ -800,7 +825,8 @@ class _Builder:
 			self.problem(
 				f"{doctype} {name} has no Peppol address of its own, no TRN and no identifier, so Flick cannot "
 				"identify the buyer (ibr-135-ae). Set the buyer's TRN, or its trade licence (or Buyer "
-				"Identifier) on the customer. For a buyer outside the UAE, ticking Export also works."
+				"Identifier) on the customer. For a buyer outside the UAE, ticking Export also works.",
+				(doctype, name),
 			)
 
 		block = {
@@ -816,7 +842,8 @@ class _Builder:
 		foreign_allowed = routing in codes.ROUTING_ENDPOINTS or inv.get("einvoice_is_export")
 		if not address_name:
 			self.problem(
-				f"The invoice has no {doctype.lower()} address; the {'supplier' if self.self_billed else 'buyer'}'s address is required."
+				f"The invoice has no {doctype.lower()} address; the {'supplier' if self.self_billed else 'buyer'}'s address is required.",
+				(doctype, name),
 			)
 			return _drop_empty(block)
 		block.update(self.address(address_name, foreign_allowed, f"{doctype} address {address_name}"))
@@ -843,7 +870,7 @@ class _Builder:
 			("country", "Country"),
 		):
 			if not address.get(fieldname):
-				self.problem(f"{label} has no {field_label}.")
+				self.problem(f"{label} has no {field_label}.", ("Address", address_name))
 		country = (
 			cstr(frappe.get_cached_value("Country", address.country, "code")).upper()
 			if address.country
@@ -851,7 +878,8 @@ class _Builder:
 		)
 		if country and country != "AE" and not foreign_allowed:
 			self.problem(
-				f"{label} is outside the UAE. Set the customer's E-Invoice Routing for a buyer abroad, or mark the invoice as an export."
+				f"{label} is outside the UAE. Set the customer's E-Invoice Routing for a buyer abroad, or mark the invoice as an export.",
+				("Address", address_name),
 			)
 		return {
 			"street_address": cstr(address.address_line1),
@@ -867,7 +895,7 @@ class _Builder:
 			# ibr-152-ae wants a country subdivision even on a foreign address.
 			code = codes.EMIRATE_CODES.get(self.settings.get("export_emirate"))
 			if not code:
-				self.problem(
+				self.settings_problem(
 					f"{label} is abroad: set the Emirate Sent for Addresses Abroad in E Invoicing Settings."
 				)
 			return code
@@ -878,11 +906,11 @@ class _Builder:
 			return None
 		name = address.get("emirate")
 		if not name:
-			self.problem(f"{label} has no Emirate.")
+			self.problem(f"{label} has no Emirate.", ("Address", address.name))
 			return None
 		code = codes.EMIRATE_CODES.get(name)
 		if not code:
-			self.problem(f"{label}: unknown emirate {name}.")
+			self.problem(f"{label}: unknown emirate {name}.", ("Address", address.name))
 		return code
 
 	def issuing_party(self) -> dict | None:

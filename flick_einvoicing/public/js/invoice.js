@@ -45,7 +45,14 @@ if (!flick_einvoicing.invoice_form_registered) {
 			});
 			return;
 		}
-		const items = (result.problems || []).map((p) => `<li>${frappe.utils.escape_html(p)}</li>`).join("");
+		const links = result.links || {};
+		const items = (result.problems || [])
+			.map((p) => {
+				const link = links[p];
+				const open = link ? ` <a href="/app/${frappe.router.slug(link.route[1])}/${encodeURIComponent(link.route[2])}" target="_blank">${frappe.utils.escape_html(link.label)}</a>` : "";
+				return `<li>${frappe.utils.escape_html(p)}${open}</li>`;
+			})
+			.join("");
 		frappe.msgprint({
 			title: result.valid === null ? __("Flick could not check it") : __("Not ready to e-invoice"),
 			message: `<p>${__("Checked by {0}:", [result.checked_by])}</p><ul>${items}</ul>${peppol_line(result.peppol)}`,
@@ -137,7 +144,12 @@ if (!flick_einvoicing.invoice_form_registered) {
 						.join("")}
 					${details.length ? `<a href="#" class="flick-banner-toggle text-nowrap ml-auto" role="button"></a>` : ""}
 				</div>
-				${details.length ? `<ul class="flick-banner-details mb-0 mt-1 pl-4">${details.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>` : ""}
+				${details.length ? `<ul class="flick-banner-details mb-0 mt-1 pl-4">${details
+					.map((line) => {
+						const link = (banner.links || {})[line];
+						return `<li>${esc(line)}${link ? ` <a href="#" class="flick-banner-link" data-line="${esc(line)}" style="text-decoration: underline">${esc(link.label)}</a>` : ""}</li>`;
+					})
+					.join("")}</ul>` : ""}
 			</div>`);
 			const set_open = (value) => {
 				$banner.find(".flick-banner-details").prop("hidden", !value);
@@ -153,6 +165,11 @@ if (!flick_einvoicing.invoice_form_registered) {
 				const value = $banner.find(".flick-banner-details").prop("hidden");
 				set_open(value);
 				keep_details_open(value);
+			});
+			$banner.find(".flick-banner-link").on("click", (event) => {
+				event.preventDefault();
+				const link = banner.links[$(event.currentTarget).attr("data-line")];
+				if (link) frappe.set_route(...link.route);
 			});
 			$banner.find(".flick-banner-action").on("click", (event) => {
 				event.preventDefault();

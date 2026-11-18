@@ -1,10 +1,12 @@
 """Sales Invoice, POS Invoice and (self-billed) Purchase Invoice hooks."""
 
+from urllib.parse import quote
+
 import frappe
 from frappe import _
 
 from flick_einvoicing.einvoice import status as st
-from flick_einvoicing.einvoice.payload import invoice_problems
+from flick_einvoicing.einvoice.payload import invoice_problems_with_links
 from flick_einvoicing.einvoice.scope import settings_for, skip_reason
 from flick_einvoicing.einvoice.service import (
 	DOCTYPE,
@@ -53,6 +55,15 @@ def default_export(doc):
 		doc.einvoice_is_export = 1
 
 
+def _link_html(link) -> str:
+	if not link:
+		return ""
+	doctype, name = link
+	url = f"/app/{frappe.scrub(doctype).replace('_', '-')}/{quote(name, safe='')}"
+	label = frappe.utils.escape_html(_("Open {0} {1}").format(_(doctype), name))
+	return f' <a href="{url}" target="_blank">{label}</a>'
+
+
 def before_submit(doc, method=None):
 	"""Block the submit while anything the e-invoice needs is missing.
 
@@ -61,7 +72,7 @@ def before_submit(doc, method=None):
 	settings = settings_for(doc.company)
 	if skip_reason(doc, settings):
 		return
-	problems = invoice_problems(doc, settings)
+	problems, links = invoice_problems_with_links(doc, settings)
 	if not problems and settings.get("validate_before_submit"):
 		valid, issues = validate_with_flick(doc, settings)
 		if valid is None:
@@ -70,7 +81,7 @@ def before_submit(doc, method=None):
 		elif not valid:
 			problems = issues
 	if problems:
-		items = "".join(f"<li>{frappe.utils.escape_html(p)}</li>" for p in problems)
+		items = "".join(f"<li>{frappe.utils.escape_html(p)}{_link_html(links.get(p))}</li>" for p in problems)
 		frappe.throw(
 			_("This invoice can't be e-invoiced yet:") + f"<ul>{items}</ul>",
 			title=_("UAE e-invoicing"),

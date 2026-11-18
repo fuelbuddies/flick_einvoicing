@@ -12,7 +12,7 @@ from frappe.utils import add_days, cint, cstr, flt, now_datetime, time_diff_in_s
 from flick_einvoicing import compat
 from flick_einvoicing.einvoice import code_lists, codes, inbound, reconcile, service, setup
 from flick_einvoicing.einvoice import status as st
-from flick_einvoicing.einvoice.payload import invoice_problems
+from flick_einvoicing.einvoice.payload import invoice_problems_with_links
 from flick_einvoicing.einvoice.scope import settings_for, skip_reason
 from flick_einvoicing.providers import get_client
 from flick_einvoicing.providers.flick import ARTIFACTS
@@ -274,15 +274,23 @@ def check_invoice(doctype: str, name: str) -> dict:
 	reason = skip_reason(invoice, settings)
 	if reason:
 		return {"skipped": reason}
-	problems = invoice_problems(invoice, settings)
+	problems, links = invoice_problems_with_links(invoice, settings)
 	if problems:
-		return {"valid": False, "problems": problems, "checked_by": "this app"}
+		return {"valid": False, "problems": problems, "links": _link_routes(links), "checked_by": "this app"}
 	valid, issues = service.validate_with_flick(invoice, settings)
 	result = {"valid": valid, "problems": issues, "checked_by": "Flick"}
 	peppol = _buyer_peppol(invoice, settings)
 	if peppol:
 		result["peppol"] = peppol
 	return result
+
+
+def _link_routes(links: dict) -> dict:
+	"""Problem text -> {label, route} for the record that fixes it."""
+	return {
+		text: {"label": _("Open {0} {1}").format(_(doctype), name), "route": ["Form", doctype, name]}
+		for text, (doctype, name) in links.items()
+	}
 
 
 def _buyer_peppol(invoice, settings) -> dict | None:
@@ -362,9 +370,10 @@ def _invoice_banner(invoice) -> dict | None:
 		return {"color": "blue", "title": _("E-invoicing not applicable: {0}").format(_(reason))}
 	if invoice.docstatus != 0:
 		return {"color": "blue", "title": _("Not e-invoiced: submitted before e-invoicing was switched on.")}
-	problems = invoice_problems(invoice, settings)
+	problems, links = invoice_problems_with_links(invoice, settings)
 	if problems:
 		return {
+			"links": _link_routes(links),
 			"color": "orange",
 			"title": _("Not ready to e-invoice: {0} to fix before submitting.").format(
 				_("1 problem") if len(problems) == 1 else _("{0} problems").format(len(problems))
@@ -762,3 +771,136 @@ def set_tax_treatment(template_type: str, template: str, values: str | dict) -> 
 	for field in TREATMENT_FIELDS:
 		row.set(field, values.get(field) or None)
 	settings.save()
+
+
+CHARGE_FIELDS = ("reason_code", "reason", "tax_category")
+CHARGE_ACCOUNT_TYPES = ("Tax", "Chargeable", "Expenses Included In Valuation")
+
+
+@frappe.whitelist()
+def charge_account(account: str) -> dict:
+	"""For the Account form: whether this account is mapped as a document-level charge."""
+	frappe.has_permission("Account", "read", account, throw=True)
+	acc = frappe.db.get_value("Account", account, ["company", "is_group", "account_type"], as_dict=True)
+	if not acc or acc.is_group or not frappe.db.exists(SETTINGS, acc.company):
+		return {"applies": False}
+	row = frappe.db.get_value(
+		"E Invoicing Charge Account",
+		{"parenttype": SETTINGS, "parent": acc.company, "account": account},
+		CHARGE_FIELDS,
+		as_dict=True,
+	)
+	if not row and acc.account_type not in CHARGE_ACCOUNT_TYPES:
+		return {"applies": False}
+	return {"applies": True, "company": acc.company, "row": row}
+
+
+@frappe.whitelist(methods=["POST"])
+def set_charge_account(account: str, values: str | dict | None = None, remove: int = 0) -> None:
+	"""Add, update or remove the account's row in Document-Level Charges."""
+	frappe.has_permission("Account", "read", account, throw=True)
+	company = frappe.db.get_value("Account", account, "company")
+	if not company or not frappe.db.exists(SETTINGS, company):
+		frappe.throw(_("Create the E Invoicing Settings for {0} first.").format(company))
+	frappe.has_permission(SETTINGS, "write", doc=company, throw=True)
+	settings = frappe.get_doc(SETTINGS, company)
+	rows = [r for r in settings.charge_accounts if r.account == account]
+	if cint(remove):
+		for r in rows:
+			settings.remove(r)
+	else:
+		values = frappe.parse_json(values) or {}
+		row = rows[0] if rows else settings.append("charge_accounts", {"account": account})
+		for field in CHARGE_FIELDS:
+			row.set(field, values.get(field) or None)
+	settings.save()
+
+
+def _uom_code_lists() -> list[str]:
+	return sorted(
+		{
+			s.uom_code_list
+			for s in frappe.get_all(SETTINGS, filters={"enabled": 1}, fields=["uom_code_list"])
+			if s.uom_code_list
+		}
+	)
+
+
+@frappe.whitelist()
+def uom_code(uom: str) -> dict:
+	"""For the UOM form: the PINT-AE unit code e-invoices send for this UOM."""
+	frappe.has_permission("UOM", "read", uom, throw=True)
+	lists = _uom_code_lists()
+	if not lists:
+		return {"applies": False}
+	from erpnext.edi.doctype.code_list.code_list import get_codes_for
+
+	units = code_lists.codes(code_lists.UNITS)
+	result = {"applies": True, "code_list": lists[0], "codes": []}
+	for code_list in lists:
+		for code in get_codes_for(code_list, "UOM", uom):
+			result["codes"].append(
+				{"code": code, "code_list": code_list, "valid": code in units, "name": (units.get(code) or [""])[0]}
+			)
+	return result
+
+
+@frappe.whitelist()
+def unit_codes(txt: str = "") -> list[dict]:
+	"""PINT-AE unit codes matching txt, for the UOM form's picker."""
+	txt = (txt or "").strip().lower()
+
+	def rank(code: str, name: str) -> int | None:
+		code, name = code.lower(), (name or "").lower()
+		if not txt:
+			return 9
+		if txt == code or txt == name:
+			return 0
+		if code.startswith(txt) or name.startswith(txt):
+			return 1
+		if txt in code or txt in name:
+			return 2
+		return None
+
+	found = []
+	for code, (name, _description) in code_lists.codes(code_lists.UNITS).items():
+		r = rank(code, name)
+		if r is not None:
+			found.append((r, len(name or ""), code, name))
+	return [{"value": code, "label": f"{code} - {name}"} for _r, _n, code, name in sorted(found)[:50]]
+
+
+@frappe.whitelist(methods=["POST"])
+def set_uom_code(uom: str, code: str) -> None:
+	"""Link the UOM to one PINT-AE unit code in each code list e-invoicing uses, unlinking any other."""
+	frappe.has_permission("UOM", "read", uom, throw=True)
+	frappe.has_permission("Common Code", "write", throw=True)
+	code = (codes.code_of((code or "").strip()) or "").upper()
+	units = code_lists.codes(code_lists.UNITS)
+	if code not in units:
+		frappe.throw(_("{0} is not a PINT-AE unit code.").format(code))
+	lists = _uom_code_lists()
+	if not lists:
+		frappe.throw(_("Set the UOM Code List in E Invoicing Settings first."))
+	for code_list in lists:
+		for name in frappe.get_all(
+			"Common Code",
+			filters=[
+				["code_list", "=", code_list],
+				["Dynamic Link", "link_doctype", "=", "UOM"],
+				["Dynamic Link", "link_name", "=", uom],
+			],
+			pluck="name",
+		):
+			doc = frappe.get_doc("Common Code", name)
+			doc.applies_to = [r for r in doc.applies_to if not (r.link_doctype == "UOM" and r.link_name == uom)]
+			doc.save()
+		target = frappe.db.get_value("Common Code", {"code_list": code_list, "common_code": code})
+		if target:
+			doc = frappe.get_doc("Common Code", target)
+		else:
+			doc = frappe.get_doc(
+				{"doctype": "Common Code", "code_list": code_list, "common_code": code, "title": units[code][0] or code}
+			)
+		doc.append("applies_to", {"link_doctype": "UOM", "link_name": uom})
+		doc.save()
